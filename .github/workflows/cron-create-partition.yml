@@ -1,0 +1,20 @@
+name: Cron — Create monthly partition
+
+on:
+  schedule:
+    # Run at 23:47 UTC on day 28 of each month — guarantees next month exists
+    # before month rollover, and 28 is the latest day every month has.
+    - cron: '47 23 28 * *'
+  workflow_dispatch:
+
+jobs:
+  create-partition:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call partition endpoint
+        run: |
+          curl -fsS -X POST "https://api.masjidmu.id/jobs/create-monthly-partition" \
+            -H "Authorization: Bearer ${{ secrets.JOBS_INTERNAL_TOKEN }}" \
+            -H "content-type: application/json" \
+            --max-time 60

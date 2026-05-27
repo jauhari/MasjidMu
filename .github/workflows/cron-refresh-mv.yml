@@ -1,0 +1,19 @@
+name: Cron — Refresh materialized views
+
+on:
+  schedule:
+    # Every 17 minutes — off the :00/:30 stampede.
+    - cron: '*/17 * * * *'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call refresh endpoint
+        run: |
+          curl -fsS -X POST "https://api.masjidmu.id/jobs/refresh-mv" \
+            -H "Authorization: Bearer ${{ secrets.JOBS_INTERNAL_TOKEN }}" \
+            -H "content-type: application/json" \
+            --max-time 60

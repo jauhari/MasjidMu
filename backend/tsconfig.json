@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "declaration": true,
+    "sourceMap": true,
+    "paths": {
+      "@masjidmu/shared": ["../shared/src"],
+      "@masjidmu/shared/*": ["../shared/src/*"]
+    }
+  },
+  "include": ["src/**/*", "scripts/**/*"]
+}
