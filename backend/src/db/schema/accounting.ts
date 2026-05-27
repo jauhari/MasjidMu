@@ -1,0 +1,239 @@
+import { sql } from 'drizzle-orm';
+import {
+  type AnyPgColumn,
+  boolean,
+  check,
+  index,
+  integer,
+  numeric,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core';
+import { tenants, users } from './core.js';
+
+// ─── Enums (English values; UI shows Indonesian labels) ────────────────────
+export const accountTypeEnum = pgEnum('account_type', [
+  'asset',
+  'liability',
+  'equity',
+  'income',
+  'expense',
+  'contra_asset',
+  'contra_liability',
+]);
+
+export const normalBalanceEnum = pgEnum('normal_balance', ['debit', 'credit']);
+
+export const transactionStatusEnum = pgEnum('transaction_status', [
+  'draft',
+  'submitted',
+  'approved',
+  'rejected',
+  'posted',
+]);
+
+export const transactionDirectionEnum = pgEnum('transaction_direction', [
+  'income',
+  'expense',
+]);
+
+export const approvalStatusEnum = pgEnum('approval_status', [
+  'pending',
+  'approved',
+  'rejected',
+  'skipped',
+]);
+
+// ─── Chart of Accounts ─────────────────────────────────────────────────────
+export const accounts = pgTable(
+  'accounts',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    parentId: uuid().references((): AnyPgColumn => accounts.id),
+    code: varchar({ length: 20 }).notNull(),
+    name: varchar({ length: 200 }).notNull(),
+    accountType: accountTypeEnum().notNull(),
+    normalBalance: normalBalanceEnum().notNull(),
+    description: text(),
+    isActive: boolean().default(true).notNull(),
+    isSystem: boolean().default(false).notNull(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => ({
+    uniqueTenantCode: unique().on(t.tenantId, t.code),
+    tenantIdx: index().on(t.tenantId),
+    parentIdx: index().on(t.parentId),
+  }),
+);
+
+// ─── Transaction Categories (link kategori → COA mapping) ──────────────────
+export const transactionCategories = pgTable(
+  'transaction_categories',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    code: varchar({ length: 50 }).notNull(),
+    name: varchar({ length: 200 }).notNull(),
+    direction: transactionDirectionEnum().notNull(),
+    debitAccountId: uuid()
+      .notNull()
+      .references(() => accounts.id),
+    creditAccountId: uuid()
+      .notNull()
+      .references(() => accounts.id),
+    isActive: boolean().default(true).notNull(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => ({
+    uniqueTenantCode: unique().on(t.tenantId, t.code),
+    tenantIdx: index().on(t.tenantId),
+  }),
+);
+
+// ─── Transactions ──────────────────────────────────────────────────────────
+export const transactions = pgTable(
+  'transactions',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    transactionNo: varchar({ length: 50 }).notNull(),
+    transactionDate: timestamp({ withTimezone: true }).notNull(),
+    categoryId: uuid()
+      .notNull()
+      .references(() => transactionCategories.id),
+    amount: numeric({ precision: 18, scale: 2 }).notNull(),
+    description: text(),
+    referenceNo: varchar({ length: 100 }),
+    status: transactionStatusEnum().default('draft').notNull(),
+    createdBy: uuid()
+      .notNull()
+      .references(() => users.id),
+    submittedAt: timestamp({ withTimezone: true }),
+    submittedBy: uuid().references(() => users.id),
+    postedAt: timestamp({ withTimezone: true }),
+    postedBy: uuid().references(() => users.id),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => ({
+    uniqueTenantNo: unique().on(t.tenantId, t.transactionNo),
+    tenantDateIdx: index().on(t.tenantId, t.transactionDate),
+    statusIdx: index().on(t.status),
+    amountPositive: check('tx_amount_positive', sql`${t.amount} > 0`),
+  }),
+);
+
+// ─── Approval workflow ─────────────────────────────────────────────────────
+export const approvalStages = pgTable(
+  'approval_stages',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    transactionId: uuid()
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+    stageOrder: integer().notNull(),
+    requiredPermission: varchar({ length: 100 }).notNull(),
+    status: approvalStatusEnum().default('pending').notNull(),
+    approvedBy: uuid().references(() => users.id),
+    approvedAt: timestamp({ withTimezone: true }),
+    notes: text(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    txIdx: index().on(t.transactionId),
+    uniqueTxOrder: unique().on(t.transactionId, t.stageOrder),
+  }),
+);
+
+export const approvalLogs = pgTable(
+  'approval_logs',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    transactionId: uuid()
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+    stageId: uuid().references(() => approvalStages.id),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id),
+    action: varchar({ length: 50 }).notNull(),
+    notes: text(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    txIdx: index().on(t.transactionId),
+  }),
+);
+
+// ─── Journals ──────────────────────────────────────────────────────────────
+export const journals = pgTable(
+  'journals',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    journalNo: varchar({ length: 50 }).notNull(),
+    journalDate: timestamp({ withTimezone: true }).notNull(),
+    transactionId: uuid().references(() => transactions.id),
+    description: text(),
+    createdBy: uuid()
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    uniqueTenantNo: unique().on(t.tenantId, t.journalNo),
+    tenantDateIdx: index().on(t.tenantId, t.journalDate),
+    txIdx: index().on(t.transactionId),
+  }),
+);
+
+export const journalLines = pgTable(
+  'journal_lines',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    journalId: uuid()
+      .notNull()
+      .references(() => journals.id, { onDelete: 'cascade' }),
+    accountId: uuid()
+      .notNull()
+      .references(() => accounts.id),
+    debit: numeric({ precision: 18, scale: 2 }).default('0').notNull(),
+    credit: numeric({ precision: 18, scale: 2 }).default('0').notNull(),
+    description: text(),
+    sortOrder: integer().default(0).notNull(),
+  },
+  (t) => ({
+    journalIdx: index().on(t.journalId),
+    accountIdx: index().on(t.accountId),
+    debitNonNeg: check('jl_debit_non_neg', sql`${t.debit} >= 0`),
+    creditNonNeg: check('jl_credit_non_neg', sql`${t.credit} >= 0`),
+    debitXorCredit: check(
+      'jl_debit_xor_credit',
+      sql`(${t.debit} > 0 AND ${t.credit} = 0) OR (${t.debit} = 0 AND ${t.credit} > 0)`,
+    ),
+  }),
+);
+
+export type Account = typeof accounts.$inferSelect;
+export type Transaction = typeof transactions.$inferSelect;
+export type Journal = typeof journals.$inferSelect;
+export type JournalLine = typeof journalLines.$inferSelect;

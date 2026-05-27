@@ -10,6 +10,9 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
 
   DATABASE_URL: z.string().url(),
+  // Optional owner-level URL for migrations and DDL ops. App code uses
+  // DATABASE_URL (NOBYPASSRLS); migrations may use DATABASE_URL_OWNER.
+  DATABASE_URL_OWNER: z.string().url().optional(),
 
   BETTER_AUTH_SECRET: z.string().min(32, 'BETTER_AUTH_SECRET must be ≥ 32 chars'),
   BETTER_AUTH_URL: z.string().url(),

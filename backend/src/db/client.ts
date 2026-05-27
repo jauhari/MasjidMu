@@ -3,8 +3,12 @@ import { sql } from 'drizzle-orm';
 import pg from 'pg';
 import { env } from '../lib/env.js';
 import * as core from './schema/core.js';
+import * as accounting from './schema/accounting.js';
+import * as organization from './schema/organization.js';
+import * as content from './schema/content.js';
+import * as audit from './schema/audit.js';
 
-const schema = { ...core };
+const schema = { ...core, ...accounting, ...organization, ...content, ...audit };
 
 const { Pool } = pg;
 

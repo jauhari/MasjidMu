@@ -30,9 +30,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 async function main() {
-  const url = process.env.DATABASE_URL;
+  // Migrations need DDL/owner privileges — use DATABASE_URL_OWNER if set,
+  // fall back to DATABASE_URL for environments where they're the same role.
+  const url = process.env.DATABASE_URL_OWNER ?? process.env.DATABASE_URL;
   if (!url) {
-    console.error('❌ DATABASE_URL not set');
+    console.error('❌ Neither DATABASE_URL_OWNER nor DATABASE_URL set');
     process.exit(1);
   }
 
