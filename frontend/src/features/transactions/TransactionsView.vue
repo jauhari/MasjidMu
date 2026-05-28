@@ -12,6 +12,7 @@ import Button from '@/shared/ui/Button.vue';
 import Modal from '@/shared/ui/Modal.vue';
 import FormField from '@/shared/ui/FormField.vue';
 import ConfirmDialog from '@/shared/ui/ConfirmDialog.vue';
+import DatePicker from '@/shared/ui/DatePicker.vue';
 import { INPUT_BASE, TEXTAREA_BASE } from '@/shared/ui/input-classes';
 
 type Status = 'draft' | 'submitted' | 'approved' | 'rejected' | 'posted';
@@ -310,7 +311,7 @@ onMounted(async () => {
       <form class="space-y-3" @submit.prevent="save">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <FormField label="Tanggal" required>
-            <input v-model="form.transactionDate" type="date" :class="INPUT_BASE" required />
+            <DatePicker v-model="form.transactionDate" required />
           </FormField>
           <FormField label="Kategori" required>
             <select v-model="form.categoryId" :class="INPUT_BASE" required>

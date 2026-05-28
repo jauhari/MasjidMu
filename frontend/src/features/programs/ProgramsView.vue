@@ -9,6 +9,7 @@ import Button from '@/shared/ui/Button.vue';
 import Modal from '@/shared/ui/Modal.vue';
 import FormField from '@/shared/ui/FormField.vue';
 import ConfirmDialog from '@/shared/ui/ConfirmDialog.vue';
+import DatePicker from '@/shared/ui/DatePicker.vue';
 import { INPUT_BASE, TEXTAREA_BASE } from '@/shared/ui/input-classes';
 
 type Status = 'draft' | 'active' | 'completed' | 'cancelled';
@@ -241,10 +242,10 @@ onMounted(load);
             <input v-model="form.targetAmount" :class="INPUT_BASE" placeholder="100000.00" />
           </FormField>
           <FormField label="Mulai">
-            <input v-model="form.startDate" type="date" :class="INPUT_BASE" />
+            <DatePicker v-model="form.startDate" />
           </FormField>
           <FormField label="Selesai">
-            <input v-model="form.endDate" type="date" :class="INPUT_BASE" />
+            <DatePicker v-model="form.endDate" />
           </FormField>
           <FormField label="Status">
             <select v-model="form.status" :class="INPUT_BASE">

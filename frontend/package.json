@@ -12,12 +12,15 @@
   },
   "dependencies": {
     "@masjidmu/shared": "workspace:*",
+    "@vuepic/vue-datepicker": "^13.0.0",
     "@vueuse/core": "^11.0.0",
     "better-auth": "^1.6.11",
+    "date-fns": "^4.3.0",
     "lucide-vue-next": "^0.460.0",
     "pinia": "^2.2.0",
     "vue": "^3.5.0",
-    "vue-router": "^4.4.0"
+    "vue-router": "^4.4.0",
+    "vue-sonner": "^2.0.9"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

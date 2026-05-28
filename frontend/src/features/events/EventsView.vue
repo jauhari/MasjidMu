@@ -12,6 +12,7 @@ import Button from '@/shared/ui/Button.vue';
 import Modal from '@/shared/ui/Modal.vue';
 import FormField from '@/shared/ui/FormField.vue';
 import ConfirmDialog from '@/shared/ui/ConfirmDialog.vue';
+import DateTimePicker from '@/shared/ui/DateTimePicker.vue';
 import { INPUT_BASE, TEXTAREA_BASE } from '@/shared/ui/input-classes';
 
 type Status = 'draft' | 'published' | 'cancelled' | 'completed';
@@ -234,10 +235,10 @@ onMounted(load);
         </FormField>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <FormField label="Mulai" required>
-            <input v-model="form.startsAt" type="datetime-local" :class="INPUT_BASE" required />
+            <DateTimePicker v-model="form.startsAt" required />
           </FormField>
           <FormField label="Selesai">
-            <input v-model="form.endsAt" type="datetime-local" :class="INPUT_BASE" />
+            <DateTimePicker v-model="form.endsAt" />
           </FormField>
           <FormField label="Lokasi">
             <input v-model="form.location" :class="INPUT_BASE" />

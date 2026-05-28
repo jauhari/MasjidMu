@@ -15,6 +15,7 @@ import Modal from '@/shared/ui/Modal.vue';
 import FormField from '@/shared/ui/FormField.vue';
 import ConfirmDialog from '@/shared/ui/ConfirmDialog.vue';
 import Pagination from '@/shared/ui/Pagination.vue';
+import DateTimePicker from '@/shared/ui/DateTimePicker.vue';
 import { INPUT_BASE, TEXTAREA_BASE } from '@/shared/ui/input-classes';
 
 interface Announcement {
@@ -220,7 +221,7 @@ onMounted(load);
             </select>
           </FormField>
           <FormField label="Publikasikan pada" hint="Kosongkan = draft">
-            <input v-model="form.publishedAt" type="datetime-local" :class="INPUT_BASE" />
+            <DateTimePicker v-model="form.publishedAt" />
           </FormField>
         </div>
       </form>
