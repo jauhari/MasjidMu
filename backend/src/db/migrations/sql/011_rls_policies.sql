@@ -31,8 +31,7 @@ DECLARE
     'role_permissions', 'user_roles',
     'approval_stages', 'approval_logs',
     'event_speakers', 'event_rsvps',
-    'gallery_items',
-    'officer_documents'
+    'gallery_items'
   ];
 BEGIN
   FOREACH t IN ARRAY tenant_scoped_tables LOOP

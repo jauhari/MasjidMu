@@ -15,6 +15,11 @@ import { accountsRoute } from './modules/accounting/accounts/route.js';
 import { transactionCategoriesRoute } from './modules/accounting/transaction-categories/route.js';
 import { transactionsRoute } from './modules/accounting/transactions/route.js';
 import { reportsRoute } from './modules/accounting/reports/route.js';
+import { mosqueProfileRoute } from './modules/organization/mosque-profile/route.js';
+import { periodsRoute } from './modules/organization/periods/route.js';
+import { positionsRoute } from './modules/organization/positions/route.js';
+import { officersRoute } from './modules/organization/officers/route.js';
+import { announcementsRoute } from './modules/content/announcements/route.js';
 
 const Sentry = initSentry();
 
@@ -83,6 +88,11 @@ app.route('/api/v1/accounts', accountsRoute);
 app.route('/api/v1/transaction-categories', transactionCategoriesRoute);
 app.route('/api/v1/transactions', transactionsRoute);
 app.route('/api/v1/reports', reportsRoute);
+app.route('/api/v1/mosque-profile', mosqueProfileRoute);
+app.route('/api/v1/periods', periodsRoute);
+app.route('/api/v1/positions', positionsRoute);
+app.route('/api/v1/officers', officersRoute);
+app.route('/api/v1/announcements', announcementsRoute);
 
 // Dev-only: synthetic error to verify Sentry + Telegram pipeline.
 if (process.env.NODE_ENV !== 'production') {
