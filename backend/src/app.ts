@@ -14,6 +14,7 @@ import { usersRoute } from './modules/core/users/route.js';
 import { accountsRoute } from './modules/accounting/accounts/route.js';
 import { transactionCategoriesRoute } from './modules/accounting/transaction-categories/route.js';
 import { transactionsRoute } from './modules/accounting/transactions/route.js';
+import { reportsRoute } from './modules/accounting/reports/route.js';
 
 const Sentry = initSentry();
 
@@ -81,6 +82,7 @@ app.route('/api/v1/users', usersRoute);
 app.route('/api/v1/accounts', accountsRoute);
 app.route('/api/v1/transaction-categories', transactionCategoriesRoute);
 app.route('/api/v1/transactions', transactionsRoute);
+app.route('/api/v1/reports', reportsRoute);
 
 // Dev-only: synthetic error to verify Sentry + Telegram pipeline.
 if (process.env.NODE_ENV !== 'production') {

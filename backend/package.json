@@ -14,7 +14,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "gates:sprint4": "tsx scripts/sprint4-gates.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
@@ -28,16 +29,20 @@
     "decimal.js": "^10.6.0",
     "dotenv": "^16.4.0",
     "drizzle-orm": "^0.45.2",
+    "exceljs": "^4.4.0",
     "hono": "^4.6.0",
     "ioredis": "^5.11.0",
+    "node-cron": "^4.2.1",
     "pg": "^8.13.0",
     "pino": "^9.0.0",
     "pino-pretty": "^11.0.0",
+    "puppeteer": "^25.1.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@types/node": "^20.0.0",
+    "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.11.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
