@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
-import { LayoutDashboard, Megaphone, LogOut, Building2, Sparkles, CalendarDays, FileBarChart2 } from 'lucide-vue-next';
+import { LayoutDashboard, Megaphone, LogOut, Building2, Sparkles, CalendarDays, FileBarChart2, Wallet, Newspaper, Images } from 'lucide-vue-next';
 import { useAuthStore } from '@/features/auth/store';
 
 const route = useRoute();
@@ -13,7 +13,10 @@ const items = [
   { to: '/mosque-profile', label: 'Profil Masjid', icon: Building2 },
   { to: '/programs', label: 'Program', icon: Sparkles },
   { to: '/events', label: 'Event', icon: CalendarDays },
+  { to: '/posts', label: 'Berita', icon: Newspaper },
+  { to: '/galleries', label: 'Galeri', icon: Images },
   { to: '/announcements', label: 'Pengumuman', icon: Megaphone },
+  { to: '/transactions', label: 'Transaksi', icon: Wallet },
   { to: '/reports', label: 'Laporan', icon: FileBarChart2 },
 ];
 

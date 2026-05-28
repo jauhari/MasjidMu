@@ -5,6 +5,7 @@
  *   POST   /api/v1/transactions           create (status=draft)
  *   GET    /api/v1/transactions/:id       detail
  *   PATCH  /api/v1/transactions/:id       update (only when draft)
+ *   DELETE /api/v1/transactions/:id       soft-delete (only when draft)
  *   POST   /api/v1/transactions/:id/submit       draft → submitted
  *   POST   /api/v1/transactions/:id/approve      submitted → approved
  *   POST   /api/v1/transactions/:id/reject       submitted → rejected
@@ -213,6 +214,30 @@ export const transactionsRoute = new Hono<{
       const m = mapErrorToResponse(e);
       return c.json(m.body, m.status);
     }
+  })
+
+  .delete('/:id', requirePermission('transactions.create'), async (c) => {
+    const tenantId = c.get('tenantId')!;
+    const id = c.req.param('id');
+    const result = await withTenant(tenantId, async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(transactions)
+        .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)));
+      if (!current) return { ok: false as const, reason: 'not_found' as const };
+      if (current.status !== 'draft') {
+        return { ok: false as const, reason: 'not_draft' as const };
+      }
+      await tx
+        .update(transactions)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(transactions.id, id));
+      return { ok: true as const };
+    });
+    if (!result.ok) {
+      return c.json({ error: result.reason }, result.reason === 'not_found' ? 404 : 409);
+    }
+    return c.body(null, 204);
   })
 
   .post('/:id/post', requirePermission('transactions.post'), async (c) => {
