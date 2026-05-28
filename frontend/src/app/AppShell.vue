@@ -1,14 +1,41 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
-import { LayoutDashboard, Megaphone, LogOut, Building2, Sparkles, CalendarDays, FileBarChart2, Wallet, Newspaper, Images } from 'lucide-vue-next';
+import {
+  LayoutDashboard,
+  Megaphone,
+  LogOut,
+  Building2,
+  Sparkles,
+  CalendarDays,
+  FileBarChart2,
+  Wallet,
+  Newspaper,
+  Images,
+  ChevronDown,
+  BookOpen,
+  Tags,
+  ArrowLeftRight,
+} from 'lucide-vue-next';
 import { useAuthStore } from '@/features/auth/store';
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 
-const items = [
+interface NavItem {
+  to: string;
+  label: string;
+  icon: unknown;
+}
+interface NavGroup {
+  label: string;
+  icon: unknown;
+  children: NavItem[];
+  match: string[];
+}
+
+const items: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/mosque-profile', label: 'Profil Masjid', icon: Building2 },
   { to: '/programs', label: 'Program', icon: Sparkles },
@@ -16,9 +43,21 @@ const items = [
   { to: '/posts', label: 'Berita', icon: Newspaper },
   { to: '/galleries', label: 'Galeri', icon: Images },
   { to: '/announcements', label: 'Pengumuman', icon: Megaphone },
-  { to: '/transactions', label: 'Transaksi', icon: Wallet },
-  { to: '/reports', label: 'Laporan', icon: FileBarChart2 },
 ];
+
+const financeGroup: NavGroup = {
+  label: 'Keuangan',
+  icon: Wallet,
+  match: ['/accounts', '/transaction-categories', '/transactions', '/reports'],
+  children: [
+    { to: '/accounts', label: 'Bagan Akun', icon: BookOpen },
+    { to: '/transaction-categories', label: 'Kategori', icon: Tags },
+    { to: '/transactions', label: 'Transaksi', icon: ArrowLeftRight },
+    { to: '/reports', label: 'Laporan', icon: FileBarChart2 },
+  ],
+};
+
+const financeOpen = ref(financeGroup.match.some((p) => route.path.startsWith(p)));
 
 const userInitial = computed(() =>
   (auth.user?.name ?? auth.user?.email ?? '?').slice(0, 1).toUpperCase(),
@@ -52,6 +91,34 @@ async function onSignOut(): Promise<void> {
           <component :is="item.icon" class="h-4 w-4" />
           {{ item.label }}
         </RouterLink>
+
+        <div>
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+            :class="{ 'bg-brand-50 text-brand-700 font-medium': financeGroup.match.some((p) => route.path.startsWith(p)) }"
+            @click="financeOpen = !financeOpen"
+          >
+            <component :is="financeGroup.icon" class="h-4 w-4" />
+            <span class="flex-1 text-left">{{ financeGroup.label }}</span>
+            <ChevronDown
+              class="h-4 w-4 transition-transform"
+              :class="{ 'rotate-180': financeOpen }"
+            />
+          </button>
+          <div v-show="financeOpen" class="mt-1 space-y-0.5 pl-4">
+            <RouterLink
+              v-for="child in financeGroup.children"
+              :key="child.to"
+              :to="child.to"
+              class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+              :class="{ 'bg-brand-50 text-brand-700 font-medium': route.path === child.to }"
+            >
+              <component :is="child.icon" class="h-4 w-4" />
+              {{ child.label }}
+            </RouterLink>
+          </div>
+        </div>
       </nav>
     </aside>
 

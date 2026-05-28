@@ -13,6 +13,7 @@ import Modal from '@/shared/ui/Modal.vue';
 import FormField from '@/shared/ui/FormField.vue';
 import ConfirmDialog from '@/shared/ui/ConfirmDialog.vue';
 import DatePicker from '@/shared/ui/DatePicker.vue';
+import DateTimePicker from '@/shared/ui/DateTimePicker.vue';
 import { INPUT_BASE, TEXTAREA_BASE } from '@/shared/ui/input-classes';
 
 type Status = 'draft' | 'submitted' | 'approved' | 'rejected' | 'posted';
@@ -52,8 +53,14 @@ const modalOpen = ref(false);
 const confirmOpen = ref(false);
 const toDelete = ref<Transaction | null>(null);
 
+function nowLocalIso(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 const form = reactive({
-  transactionDate: new Date().toISOString().slice(0, 10),
+  transactionDate: nowLocalIso(),
   categoryId: '',
   amount: '',
   description: '',
@@ -61,7 +68,13 @@ const form = reactive({
 });
 
 function resetForm(t?: Transaction | null): void {
-  form.transactionDate = t?.transactionDate ? t.transactionDate.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  form.transactionDate = t?.transactionDate
+    ? (() => {
+        const d = new Date(t.transactionDate);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      })()
+    : nowLocalIso();
   form.categoryId = t?.categoryId ?? '';
   form.amount = t?.amount ?? '';
   form.description = t?.description ?? '';
@@ -205,7 +218,13 @@ function fmtIDR(s: string): string {
 }
 
 function fmtDate(s: string): string {
-  return new Date(s).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(s).toLocaleString('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 onMounted(async () => {
@@ -310,8 +329,8 @@ onMounted(async () => {
     <Modal v-model:open="modalOpen" :title="editing ? 'Edit Transaksi' : 'Transaksi Baru'" size="lg">
       <form class="space-y-3" @submit.prevent="save">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <FormField label="Tanggal" required>
-            <DatePicker v-model="form.transactionDate" required />
+          <FormField label="Tanggal & waktu" required>
+            <DateTimePicker v-model="form.transactionDate" required />
           </FormField>
           <FormField label="Kategori" required>
             <select v-model="form.categoryId" :class="INPUT_BASE" required>
