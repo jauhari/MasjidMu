@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
-import { LayoutDashboard, Megaphone, LogOut } from 'lucide-vue-next';
+import { LayoutDashboard, Megaphone, LogOut, Building2, Sparkles, CalendarDays, FileBarChart2 } from 'lucide-vue-next';
 import { useAuthStore } from '@/features/auth/store';
 
 const route = useRoute();
@@ -10,7 +10,11 @@ const auth = useAuthStore();
 
 const items = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/mosque-profile', label: 'Profil Masjid', icon: Building2 },
+  { to: '/programs', label: 'Program', icon: Sparkles },
+  { to: '/events', label: 'Event', icon: CalendarDays },
   { to: '/announcements', label: 'Pengumuman', icon: Megaphone },
+  { to: '/reports', label: 'Laporan', icon: FileBarChart2 },
 ];
 
 const userInitial = computed(() =>

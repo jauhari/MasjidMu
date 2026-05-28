@@ -23,6 +23,26 @@ const routes: RouteRecordRaw[] = [
         name: 'announcements',
         component: () => import('@/features/announcements/AnnouncementsView.vue'),
       },
+      {
+        path: 'mosque-profile',
+        name: 'mosque-profile',
+        component: () => import('@/features/mosque-profile/MosqueProfileView.vue'),
+      },
+      {
+        path: 'programs',
+        name: 'programs',
+        component: () => import('@/features/programs/ProgramsView.vue'),
+      },
+      {
+        path: 'events',
+        name: 'events',
+        component: () => import('@/features/events/EventsView.vue'),
+      },
+      {
+        path: 'reports',
+        name: 'reports',
+        component: () => import('@/features/reports/ReportsView.vue'),
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
