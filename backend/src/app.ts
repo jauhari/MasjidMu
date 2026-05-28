@@ -20,6 +20,10 @@ import { periodsRoute } from './modules/organization/periods/route.js';
 import { positionsRoute } from './modules/organization/positions/route.js';
 import { officersRoute } from './modules/organization/officers/route.js';
 import { announcementsRoute } from './modules/content/announcements/route.js';
+import { programsRoute } from './modules/content/programs/route.js';
+import { postsRoute } from './modules/content/posts/route.js';
+import { eventsRoute } from './modules/content/events/route.js';
+import { galleriesRoute } from './modules/content/galleries/route.js';
 
 const Sentry = initSentry();
 
@@ -93,6 +97,10 @@ app.route('/api/v1/periods', periodsRoute);
 app.route('/api/v1/positions', positionsRoute);
 app.route('/api/v1/officers', officersRoute);
 app.route('/api/v1/announcements', announcementsRoute);
+app.route('/api/v1/programs', programsRoute);
+app.route('/api/v1/posts', postsRoute);
+app.route('/api/v1/events', eventsRoute);
+app.route('/api/v1/galleries', galleriesRoute);
 
 // Dev-only: synthetic error to verify Sentry + Telegram pipeline.
 if (process.env.NODE_ENV !== 'production') {
