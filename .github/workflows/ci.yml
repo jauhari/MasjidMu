@@ -37,13 +37,30 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Apply migrations to test branch
+        run: pnpm --filter @masjidmu/backend db:migrate
+        env:
+          NODE_ENV: test
+          DATABASE_URL_OWNER: ${{ secrets.NEON_TEST_DATABASE_URL_OWNER }}
+          DATABASE_URL: ${{ secrets.NEON_TEST_DATABASE_URL_OWNER }}
+          BETTER_AUTH_SECRET: ci-test-secret-must-be-at-least-32-bytes-aaaa
+          BETTER_AUTH_URL: http://localhost:3000
+          UPSTASH_REDIS_URL: https://placeholder.upstash.io
+          UPSTASH_REDIS_TOKEN: placeholder
+          R2_ACCOUNT_ID: test
+          R2_ACCESS_KEY: test
+          R2_SECRET_KEY: test
+          R2_BUCKET: test-bucket
+          RESEND_API_KEY: re_test
+
       - name: Test
         run: pnpm test
         env:
           NODE_ENV: test
-          # Neon GitHub integration auto-injects DATABASE_URL for PR branches.
-          # For pushes to main, use staging branch.
+          # App role (NOBYPASSRLS) — RLS tests need this.
           DATABASE_URL: ${{ secrets.NEON_TEST_DATABASE_URL }}
+          # Owner role for migrations only (set both because some scripts read it).
+          DATABASE_URL_OWNER: ${{ secrets.NEON_TEST_DATABASE_URL_OWNER }}
           BETTER_AUTH_SECRET: ci-test-secret-must-be-at-least-32-bytes-aaaa
           BETTER_AUTH_URL: http://localhost:3000
           UPSTASH_REDIS_URL: https://placeholder.upstash.io

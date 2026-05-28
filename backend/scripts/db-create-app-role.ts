@@ -6,9 +6,18 @@
  * Idempotent: safe to re-run.
  *
  * Run: pnpm tsx scripts/db-create-app-role.ts <password>
+ *
+ * Uses DATABASE_URL_OWNER (owner role) since CREATE/ALTER ROLE and GRANT
+ * need owner privileges.
  */
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
-import { db, pool } from '../src/db/client.js';
+import pg from 'pg';
+import 'dotenv/config';
+import { config } from 'dotenv';
+
+config({ path: '.env.local' });
+config({ path: '.env' });
 
 async function main() {
   const password = process.argv[2];
@@ -17,8 +26,16 @@ async function main() {
     process.exit(1);
   }
 
+  const url = process.env.DATABASE_URL_OWNER ?? process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_URL_OWNER or DATABASE_URL required');
+
+  const pool = new pg.Pool({
+    connectionString: url,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  });
+  const db = drizzle(pool);
+
   console.log('1. Create role masjidmu_app (NOBYPASSRLS, NOSUPERUSER)...');
-  // CREATE ROLE doesn't support IF NOT EXISTS in older PG, use DO block.
   await db.execute(sql.raw(`
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'masjidmu_app') THEN
@@ -52,15 +69,11 @@ async function main() {
   `);
   console.log('   ', r.rows[0]);
 
-  console.log('\n✅ masjidmu_app ready. Use it as DATABASE_URL for the app:');
-  console.log('   postgresql://masjidmu_app:<password>@<host>/<db>?sslmode=require');
-  console.log('Keep neondb_owner only for migrations / admin tasks.');
-
+  console.log('\n✅ masjidmu_app ready.');
   await pool.end();
 }
 
-main().catch(async (e) => {
+main().catch((e) => {
   console.error(e);
-  await pool.end();
   process.exit(1);
 });

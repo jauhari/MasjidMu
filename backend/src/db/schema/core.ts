@@ -10,8 +10,6 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
-
-// ─── Enums ─────────────────────────────────────────────────────────────────
 export const userStatusEnum = pgEnum('user_status', ['active', 'inactive', 'invited']);
 
 // ─── Tenants ───────────────────────────────────────────────────────────────
@@ -35,7 +33,13 @@ export const tenants = pgTable('tenants', {
 export type Tenant = typeof tenants.$inferSelect;
 export type NewTenant = typeof tenants.$inferInsert;
 
-// ─── Users ─────────────────────────────────────────────────────────────────
+// ─── Users (app-side profile) ──────────────────────────────────────────────
+/**
+ * App-side user profile. Authentication is handled by better-auth in its
+ * own `user` table (schema/auth.ts). This table mirrors per-tenant context
+ * and any business-domain fields. `authUserId` references better-auth's
+ * `user.id` (text), populated by `ensureUserMapping()` on sign-in.
+ */
 export const users = pgTable(
   'users',
   {
@@ -43,9 +47,8 @@ export const users = pgTable(
     tenantId: uuid()
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
+    authUserId: text().notNull(), // FK to auth.user.id (text, no Drizzle ref to avoid cross-schema cycle)
     email: varchar({ length: 255 }).notNull(),
-    emailVerified: boolean().default(false).notNull(),
-    passwordHash: varchar({ length: 255 }),
     name: varchar({ length: 200 }).notNull(),
     avatarUrl: text(),
     status: userStatusEnum().default('invited').notNull(),
@@ -56,7 +59,9 @@ export const users = pgTable(
   },
   (t) => ({
     uniqueTenantEmail: unique().on(t.tenantId, t.email),
+    uniqueTenantAuth: unique().on(t.tenantId, t.authUserId),
     tenantIdx: index().on(t.tenantId),
+    authUserIdx: index().on(t.authUserId),
   }),
 );
 
@@ -119,35 +124,10 @@ export const userRoles = pgTable(
   }),
 );
 
-// ─── Sessions (better-auth managed; minimal mirror for typing) ─────────────
-/**
- * better-auth manages session/account tables on its own schema. This is a
- * minimal mirror for app-side queries (e.g. listing active sessions in admin
- * UI). better-auth may add more columns at runtime — that's OK; Drizzle only
- * sees the columns we declare.
- */
-export const sessions = pgTable(
-  'sessions',
-  {
-    id: uuid().primaryKey().defaultRandom(),
-    userId: uuid()
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    tenantId: uuid()
-      .notNull()
-      .references(() => tenants.id, { onDelete: 'cascade' }),
-    token: varchar({ length: 500 }).notNull().unique(),
-    ipAddress: varchar({ length: 45 }),
-    userAgent: text(),
-    expiresAt: timestamp({ withTimezone: true }).notNull(),
-    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
-  },
-  (t) => ({
-    userIdx: index().on(t.userId),
-    tenantIdx: index().on(t.tenantId),
-    expiresIdx: index().on(t.expiresAt),
-  }),
-);
+// ─── Sessions ──────────────────────────────────────────────────────────────
+// Sessions are managed by better-auth in `auth.session` (schema/auth.ts).
+// No app-side mirror needed — query `auth.session` directly when listing
+// active sessions in admin UI.
 
 export type User = typeof users.$inferSelect;
 export type Role = typeof roles.$inferSelect;

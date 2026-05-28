@@ -16,7 +16,7 @@ DO $$
 DECLARE
   t text;
   tenant_scoped_tables text[] := ARRAY[
-    'users', 'roles', 'role_permissions', 'user_roles', 'sessions',
+    'users', 'roles', 'role_permissions', 'user_roles',
     'accounts', 'transaction_categories', 'transactions',
     'approval_stages', 'approval_logs',
     'journals',

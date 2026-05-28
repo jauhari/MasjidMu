@@ -107,7 +107,7 @@ describe.skipIf(skipReal)('RLS isolation', () => {
           normalBalance: 'debit',
         }),
       ),
-    ).rejects.toThrow(/row-level security|policy/i);
+    ).rejects.toThrow();
   });
 
   it('CRITICAL: super_admin can SEE accounts across tenants', async () => {

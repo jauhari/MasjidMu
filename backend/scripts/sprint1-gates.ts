@@ -12,8 +12,12 @@ import { db, pool } from '../src/db/client.js';
 type GateResult = { name: string; pass: boolean; detail: string };
 
 async function gate1_schemaParity(): Promise<GateResult> {
+  // App tables (tenant-scoped business domain). better-auth tables
+  // (user/session/account/verification/organization/member/invitation) are
+  // checked separately and are intentionally NOT RLS-enabled — they belong
+  // to better-auth which manages access at the application layer.
   const expectedTables = [
-    'tenants', 'users', 'roles', 'permissions', 'role_permissions', 'user_roles', 'sessions',
+    'tenants', 'users', 'roles', 'permissions', 'role_permissions', 'user_roles',
     'accounts', 'transaction_categories', 'transactions', 'approval_stages', 'approval_logs',
     'journals', 'journal_lines',
     'mosque_profiles', 'periods', 'positions', 'officers', 'officer_documents',
@@ -29,31 +33,38 @@ async function gate1_schemaParity(): Promise<GateResult> {
   const actual = new Set(r.rows.map((row) => row.table_name as string));
   const missing = expectedTables.filter((t) => !actual.has(t));
   return {
-    name: 'Schema parity (29 tables)',
+    name: `Schema parity (${expectedTables.length} app tables)`,
     pass: missing.length === 0,
     detail: missing.length === 0
-      ? `${actual.size} tables present`
+      ? `${actual.size} tables present (incl. better-auth tables)`
       : `MISSING: ${missing.join(', ')}`,
   };
 }
 
 async function gate2_rlsEnabled(): Promise<GateResult> {
   // Excluded:
-  //   tenants, permissions  — global, by design
-  //   part_config*          — pg_partman internal config tables
+  //   tenants, permissions      — global, by design
+  //   part_config*              — pg_partman internal config tables
+  //   user, session, account,   — better-auth tables; they manage their own
+  //   verification, organization,  access. Tenant scoping for app code is via
+  //   member, invitation           `users` (which IS RLS-enabled).
   const r = await db.execute(sql`
     SELECT tablename, rowsecurity
       FROM pg_tables
      WHERE schemaname = 'public'
-       AND tablename NOT IN ('tenants', 'permissions')
+       AND tablename NOT IN (
+         'tenants', 'permissions',
+         'user', 'session', 'account', 'verification',
+         'organization', 'member', 'invitation'
+       )
        AND tablename NOT LIKE 'part_config%'
   `);
   const noRls = r.rows.filter((row) => !(row.rowsecurity as boolean));
   return {
-    name: 'RLS enabled on all tenant-scoped tables',
+    name: 'RLS enabled on all tenant-scoped app tables',
     pass: noRls.length === 0,
     detail: noRls.length === 0
-      ? `${r.rows.length} tables have RLS enabled`
+      ? `${r.rows.length} app tables have RLS enabled`
       : `RLS NOT enabled on: ${noRls.map((row) => row.tablename).join(', ')}`,
   };
 }

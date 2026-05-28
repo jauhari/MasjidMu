@@ -6,18 +6,24 @@
 -- (without FORCE, owners bypass RLS — that includes our pg user).
 --
 -- Tables NOT enabled here:
---   • tenants         — needed before context is set (subdomain → tenant_id)
---   • permissions     — global registry, not tenant-scoped
---   • migrations      — drizzle metadata
---   • journal_lines   — derives tenant_id via parent journal (handled in 011)
+--   • tenants               — needed before context is set (subdomain → tenant_id)
+--   • permissions           — global registry, not tenant-scoped
+--   • migrations            — drizzle metadata
+--   • journal_lines         — derives tenant_id via parent journal (handled in 011)
+--   • better-auth tables    — user/session/account/verification/organization/
+--                              member/invitation handled by better-auth itself.
+--                              We DO NOT enable RLS on these — better-auth
+--                              expects to own them. Tenant scoping for
+--                              app-domain queries goes through `users` (which
+--                              has tenant_id and IS RLS-protected).
 -- ─────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
   t text;
   tenant_scoped_tables text[] := ARRAY[
-    -- core
-    'users', 'roles', 'role_permissions', 'user_roles', 'sessions',
+    -- core (sessions removed: handled by better-auth)
+    'users', 'roles', 'role_permissions', 'user_roles',
     -- accounting
     'accounts', 'transaction_categories', 'transactions',
     'approval_stages', 'approval_logs',

@@ -7,8 +7,9 @@ import * as accounting from './schema/accounting.js';
 import * as organization from './schema/organization.js';
 import * as content from './schema/content.js';
 import * as audit from './schema/audit.js';
+import * as auth from './schema/auth.js';
 
-const schema = { ...core, ...accounting, ...organization, ...content, ...audit };
+const schema = { ...core, ...accounting, ...organization, ...content, ...audit, ...auth };
 
 const { Pool } = pg;
 
