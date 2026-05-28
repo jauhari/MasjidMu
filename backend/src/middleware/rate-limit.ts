@@ -25,22 +25,31 @@ const redis = new Redis({
   token: env.UPSTASH_REDIS_TOKEN,
 });
 
+// Looser limits in development so smoke-testing doesn't get throttled.
+const isDev = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+
 const limiters = {
   login: new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(5, '15 m'),
+    limiter: isDev
+      ? Ratelimit.slidingWindow(100, '15 m')
+      : Ratelimit.slidingWindow(5, '15 m'),
     analytics: false,
     prefix: 'rl:login',
   }),
   api: new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(100, '1 m'),
+    limiter: isDev
+      ? Ratelimit.slidingWindow(1000, '1 m')
+      : Ratelimit.slidingWindow(100, '1 m'),
     analytics: false,
     prefix: 'rl:api',
   }),
   export: new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(10, '1 h'),
+    limiter: isDev
+      ? Ratelimit.slidingWindow(100, '1 h')
+      : Ratelimit.slidingWindow(10, '1 h'),
     analytics: false,
     prefix: 'rl:export',
   }),

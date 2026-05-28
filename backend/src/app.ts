@@ -11,6 +11,9 @@ import { permissionResolver, type PermissionVars } from './middleware/permission
 import { rateLimit } from './middleware/rate-limit.js';
 import { tenantsRoute } from './modules/core/tenants/route.js';
 import { usersRoute } from './modules/core/users/route.js';
+import { accountsRoute } from './modules/accounting/accounts/route.js';
+import { transactionCategoriesRoute } from './modules/accounting/transaction-categories/route.js';
+import { transactionsRoute } from './modules/accounting/transactions/route.js';
 
 const Sentry = initSentry();
 
@@ -75,6 +78,9 @@ app.use('/api/v1/*', rateLimit('api'));
 
 app.route('/api/v1/tenants', tenantsRoute);
 app.route('/api/v1/users', usersRoute);
+app.route('/api/v1/accounts', accountsRoute);
+app.route('/api/v1/transaction-categories', transactionCategoriesRoute);
+app.route('/api/v1/transactions', transactionsRoute);
 
 // Dev-only: synthetic error to verify Sentry + Telegram pipeline.
 if (process.env.NODE_ENV !== 'production') {
