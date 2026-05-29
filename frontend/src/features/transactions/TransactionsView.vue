@@ -421,6 +421,58 @@ async function submitForceDelete(): Promise<void> {
   }
 }
 
+// ─── Inline create kategori (dipanggil dari editor) ─────────────────────────
+const newCatOpen = ref(false);
+const newCatSaving = ref(false);
+const newCatTarget = ref<'form' | 'force'>('form');
+const newCat = reactive({
+  code: '',
+  name: '',
+  direction: 'income' as 'income' | 'expense',
+  debitAccountId: '',
+  creditAccountId: '',
+});
+
+function openNewCategory(target: 'form' | 'force'): void {
+  newCatTarget.value = target;
+  newCat.code = '';
+  newCat.name = '';
+  newCat.direction = 'income';
+  newCat.debitAccountId = '';
+  newCat.creditAccountId = '';
+  newCatOpen.value = true;
+}
+
+async function saveNewCategory(): Promise<void> {
+  if (!newCat.code || !newCat.name || !newCat.debitAccountId || !newCat.creditAccountId) {
+    error.value = 'Lengkapi kode, nama, dan kedua akun';
+    return;
+  }
+  newCatSaving.value = true;
+  error.value = null;
+  try {
+    const res = await api.post<{ data: Category }>('/api/v1/transaction-categories', {
+      code: newCat.code,
+      name: newCat.name,
+      direction: newCat.direction,
+      debitAccountId: newCat.debitAccountId,
+      creditAccountId: newCat.creditAccountId,
+      isActive: true,
+    });
+    categories.value = [...categories.value, res.data];
+    if (newCatTarget.value === 'form') form.categoryId = res.data.id;
+    else forceForm.categoryId = res.data.id;
+    newCatOpen.value = false;
+  } catch (err) {
+    const e = err as { body?: { error?: string; missing?: string[] } };
+    error.value = e.body?.error
+      ? e.body.error + (e.body.missing ? ` (${e.body.missing.join(', ')})` : '')
+      : (err as Error).message;
+  } finally {
+    newCatSaving.value = false;
+  }
+}
+
 onMounted(async () => {
   await Promise.all([loadCategories(), loadAccounts(), load()]);
 });
@@ -557,6 +609,7 @@ onMounted(async () => {
             :amount-hint="null"
             @update:lines="(v) => (form.lines = v)"
             @update:category-id="(v) => (form.categoryId = v ?? '')"
+            @request-create-category="openNewCategory('form')"
           />
         </div>
       </form>
@@ -755,6 +808,7 @@ onMounted(async () => {
             :amount-hint="null"
             @update:lines="(v) => (forceForm.lines = v)"
             @update:category-id="(v) => (forceForm.categoryId = v ?? '')"
+            @request-create-category="openNewCategory('force')"
           />
         </div>
       </form>
@@ -787,6 +841,44 @@ onMounted(async () => {
       <template #footer>
         <Button variant="secondary" @click="forceDeleteOpen = false">Batal</Button>
         <Button :loading="forcing" @click="submitForceDelete">Hapus paksa</Button>
+      </template>
+    </Modal>
+    <Modal v-model:open="newCatOpen" title="Kategori Baru" size="lg">
+      <form class="space-y-3" @submit.prevent="saveNewCategory">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <FormField label="Kode" required>
+            <input v-model="newCat.code" :class="INPUT_BASE" required maxlength="50" placeholder="INFAQ_JUMAT" />
+          </FormField>
+          <FormField label="Arah" required>
+            <select v-model="newCat.direction" :class="INPUT_BASE">
+              <option value="income">Pemasukan</option>
+              <option value="expense">Pengeluaran</option>
+            </select>
+          </FormField>
+        </div>
+        <FormField label="Nama" required>
+          <input v-model="newCat.name" :class="INPUT_BASE" required minlength="2" placeholder="Infaq Jumat" />
+        </FormField>
+        <FormField label="Akun debit" required>
+          <select v-model="newCat.debitAccountId" :class="INPUT_BASE" required>
+            <option value="">— Pilih akun —</option>
+            <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.code }} — {{ a.name }}</option>
+          </select>
+        </FormField>
+        <FormField label="Akun kredit" required>
+          <select v-model="newCat.creditAccountId" :class="INPUT_BASE" required>
+            <option value="">— Pilih akun —</option>
+            <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.code }} — {{ a.name }}</option>
+          </select>
+        </FormField>
+        <p class="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <strong>Pemasukan</strong>: kas/bank di debit, pendapatan di kredit.
+          <strong>Pengeluaran</strong>: beban di debit, kas/bank di kredit.
+        </p>
+      </form>
+      <template #footer>
+        <Button variant="secondary" @click="newCatOpen = false">Batal</Button>
+        <Button :loading="newCatSaving" @click="saveNewCategory">Buat & pilih</Button>
       </template>
     </Modal>
   </div>

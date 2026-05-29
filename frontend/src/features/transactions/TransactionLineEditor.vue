@@ -11,7 +11,7 @@
  * after the auto-fill.
  */
 import { computed, ref, watch } from 'vue';
-import { Plus, Trash2, AlertCircle, CheckCircle2 } from 'lucide-vue-next';
+import { Plus, Trash2, AlertCircle, CheckCircle2, FolderPlus } from 'lucide-vue-next';
 import { INPUT_BASE } from '@/shared/ui/input-classes';
 
 interface Account {
@@ -51,6 +51,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:lines': [Line[]];
   'update:categoryId': [string | null];
+  'request-create-category': [];
 }>();
 
 const localCategoryId = ref<string>(props.categoryId ?? '');
@@ -129,15 +130,23 @@ function onAmountInput(idx: number, field: 'debit' | 'credit', value: string): v
 
 <template>
   <div class="space-y-3">
-    <div v-if="categories?.length" class="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
-      <label class="text-xs font-medium text-slate-600">Shortcut kategori:</label>
+    <div class="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
+      <label class="text-xs font-medium text-slate-600 whitespace-nowrap">Shortcut kategori:</label>
       <select v-model="localCategoryId" :class="INPUT_BASE" :disabled="disabled" class="!w-auto flex-1" @change="applyCategory">
         <option value="">— Tanpa kategori (manual) —</option>
-        <option v-for="c in categories" :key="c.id" :value="c.id">
+        <option v-for="c in (categories ?? [])" :key="c.id" :value="c.id">
           {{ c.code }} — {{ c.name }}
         </option>
       </select>
-      <span v-if="amountHint" class="text-xs text-slate-500">akan otomatis isi 2 baris dgn nominal {{ fmtIDR(amountHint) }}</span>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 hover:border-brand-400 hover:text-brand-700 disabled:opacity-50"
+        :disabled="disabled"
+        title="Tambah kategori baru"
+        @click="emit('request-create-category')"
+      >
+        <FolderPlus class="h-3.5 w-3.5" /> Baru
+      </button>
     </div>
 
     <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
