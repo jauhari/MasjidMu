@@ -102,6 +102,21 @@ app.route('/api/v1/posts', postsRoute);
 app.route('/api/v1/events', eventsRoute);
 app.route('/api/v1/galleries', galleriesRoute);
 
+app.get('/api/v1/me', (c) => {
+  const user = c.get('user');
+  if (!user) return c.json({ error: 'unauthenticated' }, 401);
+  const perms = c.get('permissions');
+  return c.json({
+    data: {
+      id: user.id,
+      email: user.email,
+      name: user.name ?? null,
+      isSuperAdmin: !!c.get('isSuperAdmin'),
+      permissions: perms ? Array.from(perms) : [],
+    },
+  });
+});
+
 // Dev-only: synthetic error to verify Sentry + Telegram pipeline.
 if (process.env.NODE_ENV !== 'production') {
   app.get('/_test-error', () => {

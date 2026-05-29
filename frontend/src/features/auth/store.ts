@@ -24,17 +24,45 @@ interface SessionResponse {
   session: { id: string; expiresAt: string };
 }
 
+interface MeResponse {
+  data: {
+    id: string;
+    email: string;
+    name: string | null;
+    isSuperAdmin: boolean;
+    permissions: string[];
+  };
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<AuthUser | null>(null);
   const tenantSlug = ref<string | null>(getTenantSlug());
   const initialized = ref(false);
   const isAuthenticated = computed(() => user.value != null);
+  const isSuperAdmin = ref(false);
+  const permissions = ref<Set<string>>(new Set());
+
+  function hasPermission(code: string): boolean {
+    return isSuperAdmin.value || permissions.value.has(code);
+  }
+
+  async function fetchMe(): Promise<void> {
+    try {
+      const res = await api.get<MeResponse>('/api/v1/me');
+      isSuperAdmin.value = res.data.isSuperAdmin;
+      permissions.value = new Set(res.data.permissions);
+    } catch {
+      isSuperAdmin.value = false;
+      permissions.value = new Set();
+    }
+  }
 
   async function init(): Promise<void> {
     if (initialized.value) return;
     try {
       const res = await api.get<SessionResponse | null>('/api/auth/get-session');
       user.value = res?.user ?? null;
+      if (user.value && tenantSlug.value) await fetchMe();
     } catch {
       user.value = null;
     } finally {
@@ -50,6 +78,7 @@ export const useAuthStore = defineStore('auth', () => {
       password,
     });
     user.value = res.user;
+    await fetchMe();
   }
 
   async function signOut(): Promise<void> {
@@ -57,10 +86,23 @@ export const useAuthStore = defineStore('auth', () => {
       await api.post('/api/auth/sign-out');
     } finally {
       user.value = null;
+      isSuperAdmin.value = false;
+      permissions.value = new Set();
       setTenantSlug(null);
       tenantSlug.value = null;
     }
   }
 
-  return { user, tenantSlug, isAuthenticated, initialized, init, signIn, signOut };
+  return {
+    user,
+    tenantSlug,
+    isAuthenticated,
+    isSuperAdmin,
+    permissions,
+    initialized,
+    hasPermission,
+    init,
+    signIn,
+    signOut,
+  };
 });

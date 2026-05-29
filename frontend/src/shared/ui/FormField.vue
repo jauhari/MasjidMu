@@ -16,7 +16,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="mb-3">
+  <div>
     <label class="block text-sm font-medium text-slate-700">
       {{ label }} <span v-if="required" class="text-red-500">*</span>
     </label>

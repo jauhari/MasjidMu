@@ -114,9 +114,7 @@ export const transactions = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     transactionNo: varchar({ length: 50 }).notNull(),
     transactionDate: timestamp({ withTimezone: true }).notNull(),
-    categoryId: uuid()
-      .notNull()
-      .references(() => transactionCategories.id),
+    categoryId: uuid().references(() => transactionCategories.id),
     amount: numeric({ precision: 18, scale: 2 }).notNull(),
     description: text(),
     referenceNo: varchar({ length: 100 }),
@@ -137,6 +135,33 @@ export const transactions = pgTable(
     tenantDateIdx: index().on(t.tenantId, t.transactionDate),
     statusIdx: index().on(t.status),
     amountPositive: check('tx_amount_positive', sql`${t.amount} > 0`),
+  }),
+);
+
+export const transactionLines = pgTable(
+  'transaction_lines',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    transactionId: uuid()
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+    accountId: uuid()
+      .notNull()
+      .references(() => accounts.id),
+    debit: numeric({ precision: 18, scale: 2 }).default('0').notNull(),
+    credit: numeric({ precision: 18, scale: 2 }).default('0').notNull(),
+    description: text(),
+    sortOrder: integer().default(0).notNull(),
+  },
+  (t) => ({
+    txIdx: index().on(t.transactionId),
+    accountIdx: index().on(t.accountId),
+    debitNonNeg: check('tl_debit_non_neg', sql`${t.debit} >= 0`),
+    creditNonNeg: check('tl_credit_non_neg', sql`${t.credit} >= 0`),
+    debitXorCredit: check(
+      'tl_debit_xor_credit',
+      sql`(${t.debit} > 0 AND ${t.credit} = 0) OR (${t.debit} = 0 AND ${t.credit} > 0)`,
+    ),
   }),
 );
 
@@ -235,5 +260,6 @@ export const journalLines = pgTable(
 
 export type Account = typeof accounts.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
+export type TransactionLine = typeof transactionLines.$inferSelect;
 export type Journal = typeof journals.$inferSelect;
 export type JournalLine = typeof journalLines.$inferSelect;

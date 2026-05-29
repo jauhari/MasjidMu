@@ -1,9 +1,12 @@
 /**
- * Transaction service — state machine, approval workflow, posting + journal.
+ * Transaction service — multi-line double-entry, state machine, posting + journal.
+ *
+ * Each transaction owns N transaction_lines. SUM(debit) = SUM(credit) is enforced
+ * at COMMIT time by trigger (see 060_transaction_lines.sql).
  *
  * Posting is atomic with journal generation: status goes to `posted` and
- * journal+lines are inserted in the same transaction. The DB-level balance
- * trigger is the final guarantee that no unbalanced journal can be committed.
+ * journal+lines are inserted in the same tx — lines are 1:1 cloned from
+ * transaction_lines (no more category lookup at posting time).
  *
  * Journal numbering: `JRN-{TENANT4}-{YYYYMM}-{NNNN}` (NNNN = monthly counter).
  */
@@ -16,7 +19,7 @@ import {
   approvalStages,
   journalLines,
   journals,
-  transactionCategories,
+  transactionLines,
   transactions,
 } from '../../../db/schema/accounting.js';
 import {
@@ -32,16 +35,95 @@ export class TransactionNotFoundError extends Error {
   }
 }
 
-export class CategoryNotFoundError extends Error {
-  constructor() {
-    super('category not found or inactive');
-  }
-}
-
 export class JournalAlreadyPostedError extends Error {
   constructor() {
     super('journal already exists for this transaction');
   }
+}
+
+export class UnbalancedLinesError extends Error {
+  constructor(public debit: string, public credit: string) {
+    super(`lines unbalanced: debit=${debit} credit=${credit}`);
+  }
+}
+
+export class InvalidLinesError extends Error {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+export interface LineInput {
+  accountId: string;
+  debit: string;
+  credit: string;
+  description?: string | null;
+}
+
+/**
+ * Validate lines:
+ *   - at least 2 lines
+ *   - each line: exactly one of debit/credit > 0
+ *   - sum(debit) === sum(credit)
+ *   - all accountIds exist in tenant and are active
+ */
+export async function validateLines(tenantId: string, lines: LineInput[]): Promise<void> {
+  if (lines.length < 2) throw new InvalidLinesError('at least 2 lines required');
+
+  let totalDebit = new Decimal(0);
+  let totalCredit = new Decimal(0);
+
+  for (const l of lines) {
+    const d = new Decimal(l.debit || '0');
+    const c = new Decimal(l.credit || '0');
+    if (d.lt(0) || c.lt(0)) throw new InvalidLinesError('debit/credit must be non-negative');
+    if (d.gt(0) && c.gt(0)) throw new InvalidLinesError('a line must be either debit or credit, not both');
+    if (d.eq(0) && c.eq(0)) throw new InvalidLinesError('each line must have either debit or credit');
+    totalDebit = totalDebit.plus(d);
+    totalCredit = totalCredit.plus(c);
+  }
+
+  if (!totalDebit.eq(totalCredit)) {
+    throw new UnbalancedLinesError(totalDebit.toFixed(2), totalCredit.toFixed(2));
+  }
+
+  // Verify all account ids belong to tenant + active
+  const accIds = Array.from(new Set(lines.map((l) => l.accountId)));
+  const validAccs = await withTenant(tenantId, async (db) =>
+    db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(and(eq(accounts.tenantId, tenantId), isNull(accounts.deletedAt), eq(accounts.isActive, true))),
+  );
+  const validIds = new Set(validAccs.map((a) => a.id));
+  for (const id of accIds) {
+    if (!validIds.has(id)) throw new InvalidLinesError(`invalid account: ${id}`);
+  }
+}
+
+/** Replace all lines for a transaction (delete old, insert new). */
+export async function replaceLines(tenantId: string, txId: string, lines: LineInput[]): Promise<void> {
+  await validateLines(tenantId, lines);
+  await withTenant(tenantId, async (db) => {
+    await db.delete(transactionLines).where(eq(transactionLines.transactionId, txId));
+    await db.insert(transactionLines).values(
+      lines.map((l, i) => ({
+        transactionId: txId,
+        accountId: l.accountId,
+        debit: l.debit || '0',
+        credit: l.credit || '0',
+        description: l.description ?? null,
+        sortOrder: i,
+      })),
+    );
+  });
+}
+
+/** Compute total amount from lines (= sum of debits = sum of credits). */
+export function totalFromLines(lines: LineInput[]): string {
+  return lines
+    .reduce((acc, l) => acc.plus(new Decimal(l.debit || '0')), new Decimal(0))
+    .toFixed(2);
 }
 
 /** Generate `JRN-{tenant4}-{YYYYMM}-{NNNN}` for the given tenant + date. */
@@ -52,31 +134,18 @@ async function generateJournalNo(
 ): Promise<string> {
   const yyyymm = `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
   return withTenant(tenantId, async (tx) => {
-    const monthStart = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-    const monthEnd = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
     const r = await tx
       .select({ n: count() })
       .from(journals)
-      .where(
-        and(
-          eq(journals.tenantId, tenantId),
-          // monthly window
-          // (drizzle doesn't have a direct between, use raw filters)
-        ),
-      );
-    // naive count + 1; concurrent writes may collide → unique constraint
-    // catches it and we'd retry. Acceptable for MVP volume.
+      .where(eq(journals.tenantId, tenantId));
     const seq = String(((r[0]?.n ?? 0) % 9999) + 1).padStart(4, '0');
-    void monthStart;
-    void monthEnd;
     const tenantPrefix = tenantSlug.slice(0, 4).toUpperCase().padEnd(4, 'X');
     return `JRN-${tenantPrefix}-${yyyymm}-${seq}`;
   });
 }
 
 /**
- * Transition a transaction. Always validates allowed transitions; logs
- * to approval_logs. Returns the updated row.
+ * Transition a transaction. Always validates allowed transitions.
  */
 export async function transitionStatus(
   tenantId: string,
@@ -106,8 +175,6 @@ export async function transitionStatus(
       .where(eq(transactions.id, txId))
       .returning({ id: transactions.id, status: transactions.status });
 
-    // Log the action. We attach the auth-user id; the auth → app user mapping
-    // is resolved by the caller if needed.
     void actorAuthUserId;
     void notes;
 
@@ -115,91 +182,11 @@ export async function transitionStatus(
   });
 }
 
-/** Generate journal + lines from a posted transaction (atomic). */
-export async function generateJournalForTransaction(args: {
-  tenantId: string;
-  tenantSlug: string;
-  transactionId: string;
-  appUserId: string;
-}): Promise<{ journalId: string; journalNo: string }> {
-  const { tenantId, tenantSlug, transactionId, appUserId } = args;
-  return withTenant(tenantId, async (db) => {
-    const [tx] = await db
-      .select()
-      .from(transactions)
-      .where(and(eq(transactions.id, transactionId), isNull(transactions.deletedAt)));
-    if (!tx) throw new TransactionNotFoundError();
-
-    // Idempotence: if a journal already exists for this transaction, refuse.
-    const dup = await db
-      .select({ id: journals.id })
-      .from(journals)
-      .where(eq(journals.transactionId, tx.id));
-    if (dup[0]) throw new JournalAlreadyPostedError();
-
-    const [cat] = await db
-      .select()
-      .from(transactionCategories)
-      .where(
-        and(
-          eq(transactionCategories.id, tx.categoryId),
-          eq(transactionCategories.isActive, true),
-          isNull(transactionCategories.deletedAt),
-        ),
-      );
-    if (!cat) throw new CategoryNotFoundError();
-
-    // Verify accounts exist & active.
-    const accs = await db
-      .select({ id: accounts.id, code: accounts.code })
-      .from(accounts)
-      .where(and(eq(accounts.tenantId, tenantId), isNull(accounts.deletedAt), eq(accounts.isActive, true)));
-    const ids = new Set(accs.map((a) => a.id));
-    if (!ids.has(cat.debitAccountId)) throw new Error('debit account inactive');
-    if (!ids.has(cat.creditAccountId)) throw new Error('credit account inactive');
-
-    const amount = new Decimal(tx.amount);
-    const lines = [
-      { accountId: cat.debitAccountId, debit: amount.toFixed(2), credit: '0' },
-      { accountId: cat.creditAccountId, debit: '0', credit: amount.toFixed(2) },
-    ];
-
-    const v = validateJournalEntries(lines);
-    if (!v.valid) throw new Error(`validator: ${v.errors.join('; ')}`);
-
-    const journalNo = await generateJournalNo(tenantId, tenantSlug, tx.transactionDate);
-
-    const [j] = await db
-      .insert(journals)
-      .values({
-        tenantId,
-        journalNo,
-        journalDate: tx.transactionDate,
-        transactionId: tx.id,
-        description: tx.description ?? `Auto-journal for ${tx.transactionNo}`,
-        createdBy: appUserId,
-      })
-      .returning({ id: journals.id, journalNo: journals.journalNo });
-
-    await db.insert(journalLines).values(
-      lines.map((l, i) => ({
-        journalId: j!.id,
-        accountId: l.accountId,
-        debit: l.debit,
-        credit: l.credit,
-        sortOrder: i,
-      })),
-    );
-
-    return { journalId: j!.id, journalNo: j!.journalNo };
-  });
-}
-
 /**
- * Post a transaction (approved → posted). Generates the journal in the SAME
- * tenant-scoped tx so the DB balance trigger fires together with the status
- * update. If the trigger rejects, both the journal lines AND the status
- * change roll back.
+ * Post a transaction (approved → posted). Clones transaction_lines into
+ * journal_lines in the SAME tenant-scoped tx. The DB-level balance trigger
+ * on journal_lines fires together with the status update; if it rejects,
+ * everything rolls back.
  */
 export async function postTransaction(args: {
   tenantId: string;
@@ -218,32 +205,21 @@ export async function postTransaction(args: {
       throw new IllegalTransitionError(tx.status, 'posted');
     }
 
-    // Generate journal first (raises if balance off / category bad).
-    // We re-implement the journal-generation inline so it shares this tx.
     const dup = await db
       .select({ id: journals.id })
       .from(journals)
       .where(eq(journals.transactionId, tx.id));
     if (dup[0]) throw new JournalAlreadyPostedError();
 
-    const [cat] = await db
+    const lines = await db
       .select()
-      .from(transactionCategories)
-      .where(
-        and(
-          eq(transactionCategories.id, tx.categoryId),
-          eq(transactionCategories.isActive, true),
-          isNull(transactionCategories.deletedAt),
-        ),
-      );
-    if (!cat) throw new CategoryNotFoundError();
+      .from(transactionLines)
+      .where(eq(transactionLines.transactionId, tx.id));
+    if (lines.length < 2) throw new InvalidLinesError('transaction has fewer than 2 lines');
 
-    const amount = new Decimal(tx.amount);
-    const lines = [
-      { accountId: cat.debitAccountId, debit: amount.toFixed(2), credit: '0' },
-      { accountId: cat.creditAccountId, debit: '0', credit: amount.toFixed(2) },
-    ];
-    const v = validateJournalEntries(lines);
+    const v = validateJournalEntries(
+      lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
+    );
     if (!v.valid) throw new Error(`validator: ${v.errors.join('; ')}`);
 
     const journalNo = await generateJournalNo(tenantId, tenantSlug, tx.transactionDate);
@@ -266,6 +242,7 @@ export async function postTransaction(args: {
         accountId: l.accountId,
         debit: l.debit,
         credit: l.credit,
+        description: l.description,
         sortOrder: i,
       })),
     );
@@ -288,6 +265,119 @@ export async function postTransaction(args: {
     });
 
     return { id: tx.id, journalId: j!.id, journalNo: j!.journalNo };
+  });
+}
+
+/**
+ * GOD MODE force-edit: super_admin only. Hard-deletes existing journal lines
+ * (if posted), replaces transaction lines, optionally regenerates journal.
+ *
+ * - status `posted`: delete old journal + journal_lines, will be regenerated
+ *   if user calls post() again. Status reset to `approved`.
+ * - other statuses: just replace lines, status unchanged.
+ *
+ * Mandatory audit log entry with reason.
+ */
+export async function forceEditTransaction(args: {
+  tenantId: string;
+  transactionId: string;
+  appUserId: string;
+  reason: string;
+  header?: { transactionDate?: Date; description?: string | null; referenceNo?: string | null; categoryId?: string | null };
+  lines: LineInput[];
+}): Promise<{ id: string; status: TransactionStatus }> {
+  const { tenantId, transactionId, appUserId, reason, header, lines } = args;
+  if (!reason || reason.trim().length < 10) {
+    throw new InvalidLinesError('reason required (min 10 chars) for force-edit');
+  }
+
+  await validateLines(tenantId, lines);
+
+  return withTenant(tenantId, async (db) => {
+    const [tx] = await db
+      .select()
+      .from(transactions)
+      .where(and(eq(transactions.id, transactionId), isNull(transactions.deletedAt)));
+    if (!tx) throw new TransactionNotFoundError();
+
+    // Posted? Drop the journal + journal_lines so it can be reposted cleanly.
+    if (tx.status === 'posted') {
+      await db.delete(journals).where(eq(journals.transactionId, tx.id));
+    }
+
+    // Replace transaction lines.
+    await db.delete(transactionLines).where(eq(transactionLines.transactionId, tx.id));
+    await db.insert(transactionLines).values(
+      lines.map((l, i) => ({
+        transactionId: tx.id,
+        accountId: l.accountId,
+        debit: l.debit || '0',
+        credit: l.credit || '0',
+        description: l.description ?? null,
+        sortOrder: i,
+      })),
+    );
+
+    // Update header + recompute amount.
+    const newAmount = totalFromLines(lines);
+    const [updated] = await db
+      .update(transactions)
+      .set({
+        ...(header?.transactionDate && { transactionDate: header.transactionDate }),
+        ...(header?.description !== undefined && { description: header.description }),
+        ...(header?.referenceNo !== undefined && { referenceNo: header.referenceNo }),
+        ...(header?.categoryId !== undefined && { categoryId: header.categoryId }),
+        amount: newAmount,
+        ...(tx.status === 'posted' && { status: 'approved' as const, postedAt: null, postedBy: null }),
+        updatedAt: new Date(),
+      })
+      .where(eq(transactions.id, tx.id))
+      .returning({ id: transactions.id, status: transactions.status });
+
+    await db.insert(approvalLogs).values({
+      transactionId: tx.id,
+      userId: appUserId,
+      action: 'force_edit',
+      notes: reason,
+    });
+
+    return updated!;
+  });
+}
+
+/** GOD MODE force-delete: hard-delete tx + lines + journal. Audit logged. */
+export async function forceDeleteTransaction(args: {
+  tenantId: string;
+  transactionId: string;
+  appUserId: string;
+  reason: string;
+}): Promise<void> {
+  const { tenantId, transactionId, appUserId, reason } = args;
+  if (!reason || reason.trim().length < 10) {
+    throw new InvalidLinesError('reason required (min 10 chars) for force-delete');
+  }
+
+  await withTenant(tenantId, async (db) => {
+    const [tx] = await db
+      .select()
+      .from(transactions)
+      .where(and(eq(transactions.id, transactionId), isNull(transactions.deletedAt)));
+    if (!tx) throw new TransactionNotFoundError();
+
+    // Audit log BEFORE delete (cascade would wipe it otherwise).
+    await db.insert(approvalLogs).values({
+      transactionId: tx.id,
+      userId: appUserId,
+      action: 'force_delete',
+      notes: reason,
+    });
+
+    // Soft-delete (preserve audit trail). Also nuke journal so balances stay clean.
+    await db.delete(journals).where(eq(journals.transactionId, tx.id));
+    await db
+      .update(transactions)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(transactions.id, tx.id));
   });
 }
 

@@ -49,6 +49,16 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/features/galleries/GalleriesView.vue'),
       },
       {
+        path: 'accounts',
+        name: 'accounts',
+        component: () => import('@/features/accounts/AccountsView.vue'),
+      },
+      {
+        path: 'transaction-categories',
+        name: 'transaction-categories',
+        component: () => import('@/features/transaction-categories/TransactionCategoriesView.vue'),
+      },
+      {
         path: 'transactions',
         name: 'transactions',
         component: () => import('@/features/transactions/TransactionsView.vue'),

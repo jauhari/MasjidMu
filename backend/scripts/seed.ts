@@ -49,6 +49,7 @@ const PERMISSIONS: Array<{ code: string; module: string; action: string; descrip
   { code: 'transactions.approve.stage2', module: 'accounting', action: 'transactions.approve.stage2', description: 'Approve transactions stage 2' },
   { code: 'transactions.post', module: 'accounting', action: 'transactions.post', description: 'Post transactions (irreversible)' },
   { code: 'transactions.reject', module: 'accounting', action: 'transactions.reject', description: 'Reject transactions' },
+  { code: 'transactions.god_mode', module: 'accounting', action: 'transactions.god_mode', description: 'GOD MODE: bypass state machine, force-edit/delete posted transactions (super_admin only)' },
   { code: 'reports.read', module: 'accounting', action: 'reports.read', description: 'View financial reports' },
   { code: 'reports.export', module: 'accounting', action: 'reports.export', description: 'Export financial reports (PDF/XLSX)' },
   // Content
