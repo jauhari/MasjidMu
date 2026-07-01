@@ -72,18 +72,16 @@ export async function seedDefaultChart(tenantId: string, tx?: Tx): Promise<numbe
       insertedCount++;
     }
 
-    // Pass 2: re-derive parent linkage for every default-chart code.
-    // (Repairs any prior mis-linkage from earlier buggy versions; cheap and idempotent.)
+    // Pass 2: re-derive parent linkage for every 4-digit account code.
+    // Covers sheet-imported COA rows as well as the default PSAK 45 chart.
     const all = await db
       .select({ id: accounts.id, code: accounts.code, parentId: accounts.parentId })
       .from(accounts)
       .where(and(eq(accounts.tenantId, tenantId), isNull(accounts.deletedAt)));
     const idByCode = new Map(all.map((a) => [a.code, a.id]));
 
-    for (const spec of PSAK_45_DEFAULT_ACCOUNTS) {
-      const row = all.find((a) => a.code === spec.code);
-      if (!row) continue;
-      const parentCode = deriveParentCode(spec.code);
+    for (const row of all) {
+      const parentCode = deriveParentCode(row.code);
       const expectedParentId = parentCode ? idByCode.get(parentCode) ?? null : null;
       if (row.parentId !== expectedParentId) {
         await db

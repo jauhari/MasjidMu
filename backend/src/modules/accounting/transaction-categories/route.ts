@@ -24,22 +24,64 @@ import {
 
 const directionEnum = z.enum(['income', 'expense']);
 
-const createSchema = z.object({
-  code: z.string().min(1).max(50).regex(/^[A-Za-z0-9._-]+$/, 'invalid characters'),
-  name: z.string().min(1).max(200),
-  direction: directionEnum,
-  debitAccountId: z.string().uuid(),
-  creditAccountId: z.string().uuid(),
-  isActive: z.boolean().optional(),
-});
+/**
+ * Direction-based requirement (sesuai PSAK 45 / akuntansi standar):
+ *   - Pemasukan : credit_account = WAJIB (akun pendapatan), debit opsional
+ *   - Pengeluaran: debit_account  = WAJIB (akun beban),     credit opsional
+ *
+ * Mirror dari CHECK constraint di DB (070_transaction_categories_optional_accounts.sql)
+ * supaya error muncul sebagai validation failure (400) bukan FK violation (500).
+ */
+function refineDirectionAccounts<T extends z.ZodTypeAny>(schema: T): T {
+  return schema.superRefine((val, ctx) => {
+    const v = val as {
+      direction?: 'income' | 'expense';
+      debitAccountId?: string | null;
+      creditAccountId?: string | null;
+    };
+    if (v.direction === 'income' && !v.creditAccountId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['creditAccountId'],
+        message: 'Akun kredit wajib untuk kategori pemasukan',
+      });
+    }
+    if (v.direction === 'expense' && !v.debitAccountId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['debitAccountId'],
+        message: 'Akun debit wajib untuk kategori pengeluaran',
+      });
+    }
+  }) as unknown as T;
+}
 
-const updateSchema = createSchema.partial().omit({ code: true });
+const createSchema = refineDirectionAccounts(
+  z.object({
+    code: z.string().min(1).max(50).regex(/^[A-Za-z0-9._-]+$/, 'invalid characters'),
+    name: z.string().min(1).max(200),
+    direction: directionEnum,
+    debitAccountId: z.string().uuid().nullable().optional(),
+    creditAccountId: z.string().uuid().nullable().optional(),
+    isActive: z.boolean().optional(),
+  }),
+);
+
+const updateSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    direction: directionEnum.optional(),
+    debitAccountId: z.string().uuid().nullable().optional(),
+    creditAccountId: z.string().uuid().nullable().optional(),
+    isActive: z.boolean().optional(),
+  });
 
 async function assertAccountsExist(
   tenantId: string,
-  debitId: string,
-  creditId: string,
+  debitId: string | null | undefined,
+  creditId: string | null | undefined,
 ): Promise<{ ok: true } | { ok: false; missing: string[] }> {
+  if (!debitId && !creditId) return { ok: true };
   return withTenant(tenantId, async (tx) => {
     const rows = await tx
       .select({ id: accounts.id })
@@ -53,8 +95,8 @@ async function assertAccountsExist(
       );
     const ids = new Set(rows.map((r) => r.id));
     const missing: string[] = [];
-    if (!ids.has(debitId)) missing.push('debit');
-    if (!ids.has(creditId)) missing.push('credit');
+    if (debitId && !ids.has(debitId)) missing.push('debit');
+    if (creditId && !ids.has(creditId)) missing.push('credit');
     return missing.length === 0 ? { ok: true as const } : { ok: false as const, missing };
   });
 }
@@ -136,7 +178,34 @@ export const transactionCategoriesRoute = new Hono<{
       const id = c.req.param('id');
       const body = c.req.valid('json');
 
-      if (body.debitAccountId && body.creditAccountId) {
+      // Fetch current row to compute merged state for direction-rule check.
+      const current = await withTenant(tenantId, async (tx) => {
+        const r = await tx
+          .select()
+          .from(transactionCategories)
+          .where(
+            and(eq(transactionCategories.id, id), isNull(transactionCategories.deletedAt)),
+          );
+        return r[0] ?? null;
+      });
+      if (!current) return c.json({ error: 'not_found' }, 404);
+
+      const merged = {
+        direction: body.direction ?? current.direction,
+        debitAccountId:
+          body.debitAccountId !== undefined ? body.debitAccountId : current.debitAccountId,
+        creditAccountId:
+          body.creditAccountId !== undefined ? body.creditAccountId : current.creditAccountId,
+      };
+
+      if (merged.direction === 'income' && !merged.creditAccountId) {
+        return c.json({ error: 'credit_required_for_income', missing: ['credit'] }, 422);
+      }
+      if (merged.direction === 'expense' && !merged.debitAccountId) {
+        return c.json({ error: 'debit_required_for_expense', missing: ['debit'] }, 422);
+      }
+
+      if (body.debitAccountId || body.creditAccountId) {
         const accountCheck = await assertAccountsExist(
           tenantId,
           body.debitAccountId,

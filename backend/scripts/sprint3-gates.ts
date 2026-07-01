@@ -71,18 +71,27 @@ async function gate3_categoryMapping(): Promise<GateResult> {
     tx.execute(sql`
       SELECT COUNT(*)::int AS n
         FROM transaction_categories tc
-        JOIN accounts d ON d.id = tc.debit_account_id
-        JOIN accounts c ON c.id = tc.credit_account_id
+        LEFT JOIN accounts d ON d.id = tc.debit_account_id
+        LEFT JOIN accounts c ON c.id = tc.credit_account_id
        WHERE tc.deleted_at IS NULL
-         AND d.deleted_at IS NULL
-         AND c.deleted_at IS NULL
+         AND (
+           (tc.direction = 'income'
+            AND tc.credit_account_id IS NOT NULL
+            AND c.deleted_at IS NULL
+            AND (tc.debit_account_id IS NULL OR d.deleted_at IS NULL))
+           OR
+           (tc.direction = 'expense'
+            AND tc.debit_account_id IS NOT NULL
+            AND d.deleted_at IS NULL
+            AND (tc.credit_account_id IS NULL OR c.deleted_at IS NULL))
+         )
     `),
   );
   const n = (r.rows[0] as { n: number }).n;
   return {
     name: 'Transaction categories link valid accounts',
     pass: n >= 1,
-    detail: `${n} categories with valid debit+credit accounts`,
+    detail: `${n} categories with required account mapping (PSAK 45 direction rule)`,
   };
 }
 

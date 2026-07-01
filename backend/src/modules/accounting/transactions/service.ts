@@ -10,13 +10,14 @@
  *
  * Journal numbering: `JRN-{TENANT4}-{YYYYMM}-{NNNN}` (NNNN = monthly counter).
  */
-import { and, count, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { Decimal } from 'decimal.js';
 import { withTenant } from '../../../db/client.js';
 import {
   accounts,
   approvalLogs,
   approvalStages,
+  funds,
   journalLines,
   journals,
   transactionLines,
@@ -58,6 +59,8 @@ export interface LineInput {
   debit: string;
   credit: string;
   description?: string | null;
+  /** Optional fund (Dana) tag — PSAK 109. Null for single-fund (masjid) data. */
+  fundId?: string | null;
 }
 
 /**
@@ -99,6 +102,23 @@ export async function validateLines(tenantId: string, lines: LineInput[]): Promi
   for (const id of accIds) {
     if (!validIds.has(id)) throw new InvalidLinesError(`invalid account: ${id}`);
   }
+
+  // Verify fund ids (if provided) belong to tenant + active.
+  const fundIds = Array.from(
+    new Set(lines.map((l) => l.fundId).filter((x): x is string => !!x)),
+  );
+  if (fundIds.length > 0) {
+    const validFunds = await withTenant(tenantId, async (db) =>
+      db
+        .select({ id: funds.id })
+        .from(funds)
+        .where(and(eq(funds.tenantId, tenantId), isNull(funds.deletedAt), eq(funds.isActive, true))),
+    );
+    const validFundIds = new Set(validFunds.map((f) => f.id));
+    for (const id of fundIds) {
+      if (!validFundIds.has(id)) throw new InvalidLinesError(`invalid fund: ${id}`);
+    }
+  }
 }
 
 /** Replace all lines for a transaction (delete old, insert new). */
@@ -110,6 +130,7 @@ export async function replaceLines(tenantId: string, txId: string, lines: LineIn
       lines.map((l, i) => ({
         transactionId: txId,
         accountId: l.accountId,
+        fundId: l.fundId ?? null,
         debit: l.debit || '0',
         credit: l.credit || '0',
         description: l.description ?? null,
@@ -126,7 +147,7 @@ export function totalFromLines(lines: LineInput[]): string {
     .toFixed(2);
 }
 
-/** Generate `JRN-{tenant4}-{YYYYMM}-{NNNN}` for the given tenant + date. */
+/** Generate `JRN-{tenant4}-{YYYYMM}-{NNNN}` — atomic via row lock. */
 async function generateJournalNo(
   tenantId: string,
   tenantSlug: string,
@@ -134,13 +155,26 @@ async function generateJournalNo(
 ): Promise<string> {
   const yyyymm = `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
   return withTenant(tenantId, async (tx) => {
-    const r = await tx
-      .select({ n: count() })
-      .from(journals)
-      .where(eq(journals.tenantId, tenantId));
-    const seq = String(((r[0]?.n ?? 0) % 9999) + 1).padStart(4, '0');
+    // Advisory lock: serialise journal number generation per tenant.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}))`);
     const tenantPrefix = tenantSlug.slice(0, 4).toUpperCase().padEnd(4, 'X');
-    return `JRN-${tenantPrefix}-${yyyymm}-${seq}`;
+    // Extract MAX sequence from existing journal_no untuk tenant + bulan ini.
+    // Pakai MAX (bukan COUNT) supaya setelah force-edit (hapus jurnal lama),
+    // nomor gak mundur dan bentrok sama jurnal yg udah pernah ada.
+    const maxResult = await tx.execute(sql`
+      SELECT journal_no FROM journals
+       WHERE tenant_id = ${tenantId}
+         AND journal_no LIKE ${`JRN-${tenantPrefix}-${yyyymm}-%`}
+       ORDER BY journal_no DESC
+       LIMIT 1
+    `);
+    const lastJournal = (maxResult.rows[0] as { journal_no: string } | undefined)?.journal_no;
+    let seq = 1;
+    if (lastJournal) {
+      const match = lastJournal.match(/-(\d{4})$/);
+      if (match) seq = (parseInt(match[1], 10) % 9999) + 1;
+    }
+    return `JRN-${tenantPrefix}-${yyyymm}-${String(seq).padStart(4, '0')}`;
   });
 }
 
@@ -240,6 +274,7 @@ export async function postTransaction(args: {
       lines.map((l, i) => ({
         journalId: j!.id,
         accountId: l.accountId,
+        fundId: l.fundId ?? null,
         debit: l.debit,
         credit: l.credit,
         description: l.description,
@@ -263,6 +298,82 @@ export async function postTransaction(args: {
       action: 'post',
       notes: `journal=${j!.journalNo}`,
     });
+
+    return { id: tx.id, journalId: j!.id, journalNo: j!.journalNo };
+  });
+}
+
+/**
+ * Bypass state machine: post directly from draft → posted (used by historical
+ * import only). Wraps postTransaction's core but skips canTransition() guard.
+ * Called inside an existing withTenant context.
+ */
+export async function generateJournalForPostedImport(args: {
+  tenantId: string;
+  tenantSlug: string;
+  transactionId: string;
+  appUserId: string;
+}): Promise<{ id: string; journalId: string; journalNo: string }> {
+  const { tenantId, tenantSlug, transactionId, appUserId } = args;
+  return withTenant(tenantId, async (db) => {
+    const [tx] = await db
+      .select()
+      .from(transactions)
+      .where(and(eq(transactions.id, transactionId), isNull(transactions.deletedAt)));
+    if (!tx) throw new TransactionNotFoundError();
+
+    const dup = await db
+      .select({ id: journals.id })
+      .from(journals)
+      .where(eq(journals.transactionId, tx.id));
+    if (dup[0]) throw new JournalAlreadyPostedError();
+
+    const lines = await db
+      .select()
+      .from(transactionLines)
+      .where(eq(transactionLines.transactionId, tx.id));
+    if (lines.length < 2) throw new InvalidLinesError('transaction has fewer than 2 lines');
+
+    const v = validateJournalEntries(
+      lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
+    );
+    if (!v.valid) throw new Error(`validator: ${v.errors.join('; ')}`);
+
+    const journalNo = await generateJournalNo(tenantId, tenantSlug, tx.transactionDate);
+
+    const [j] = await db
+      .insert(journals)
+      .values({
+        tenantId,
+        journalNo,
+        journalDate: tx.transactionDate,
+        transactionId: tx.id,
+        description: tx.description ?? `Imported journal for ${tx.transactionNo}`,
+        createdBy: appUserId,
+      })
+      .returning({ id: journals.id, journalNo: journals.journalNo });
+
+    await db.insert(journalLines).values(
+      lines.map((l, i) => ({
+        journalId: j!.id,
+        accountId: l.accountId,
+        fundId: l.fundId ?? null,
+        debit: l.debit,
+        credit: l.credit,
+        description: l.description,
+        sortOrder: i,
+      })),
+    );
+
+    await db
+      .update(transactions)
+      .set({
+        status: 'posted',
+        postedAt: new Date(),
+        postedBy: appUserId,
+        updatedAt: new Date(),
+      })
+      .where(eq(transactions.id, tx.id));
 
     return { id: tx.id, journalId: j!.id, journalNo: j!.journalNo };
   });
@@ -311,6 +422,7 @@ export async function forceEditTransaction(args: {
       lines.map((l, i) => ({
         transactionId: tx.id,
         accountId: l.accountId,
+        fundId: l.fundId ?? null,
         debit: l.debit || '0',
         credit: l.credit || '0',
         description: l.description ?? null,

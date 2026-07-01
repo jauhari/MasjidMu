@@ -49,6 +49,18 @@ export const approvalStatusEnum = pgEnum('approval_status', [
   'skipped',
 ]);
 
+// Fund dimension for PSAK 109 (zakat/infak-sedekah/amil/non-halal) and
+// PSAK 112 (wakaf). 'umum' = general operating fund used by the masjid /
+// generic non-profit (ISAK 35) edition where dana segregation isn't required.
+export const fundTypeEnum = pgEnum('fund_type', [
+  'zakat',
+  'infaq_sedekah',
+  'amil',
+  'nonhalal',
+  'wakaf',
+  'umum',
+]);
+
 // ─── Chart of Accounts ─────────────────────────────────────────────────────
 export const accounts = pgTable(
   'accounts',
@@ -65,6 +77,7 @@ export const accounts = pgTable(
     description: text(),
     isActive: boolean().default(true).notNull(),
     isSystem: boolean().default(false).notNull(),
+    openingBalance: numeric({ precision: 18, scale: 2 }).default('0').notNull(),
     createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
     deletedAt: timestamp({ withTimezone: true }),
@@ -73,6 +86,37 @@ export const accounts = pgTable(
     uniqueTenantCode: unique().on(t.tenantId, t.code),
     tenantIdx: index().on(t.tenantId),
     parentIdx: index().on(t.parentId),
+  }),
+);
+
+// ─── Funds (Dana) — PSAK 109 / PSAK 112 fund accounting ────────────────────
+// Each posting line is tagged with a fund so we can produce a per-fund
+// "Laporan Sumber & Penggunaan Dana". A tenant on the masjid/ISAK-35 edition
+// only ever uses the single 'umum' fund; the ZakatMu edition enforces a
+// non-null fund at the application layer.
+export const funds = pgTable(
+  'funds',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    code: varchar({ length: 20 }).notNull(),
+    name: varchar({ length: 200 }).notNull(),
+    fundType: fundTypeEnum().notNull(),
+    // Terikat/restricted use (zakat & wakaf are restricted by syariah).
+    isRestricted: boolean().default(false).notNull(),
+    description: text(),
+    isActive: boolean().default(true).notNull(),
+    isSystem: boolean().default(false).notNull(),
+    sortOrder: integer().default(0).notNull(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => ({
+    uniqueTenantCode: unique().on(t.tenantId, t.code),
+    tenantIdx: index().on(t.tenantId),
   }),
 );
 
@@ -87,12 +131,8 @@ export const transactionCategories = pgTable(
     code: varchar({ length: 50 }).notNull(),
     name: varchar({ length: 200 }).notNull(),
     direction: transactionDirectionEnum().notNull(),
-    debitAccountId: uuid()
-      .notNull()
-      .references(() => accounts.id),
-    creditAccountId: uuid()
-      .notNull()
-      .references(() => accounts.id),
+    debitAccountId: uuid().references(() => accounts.id),
+    creditAccountId: uuid().references(() => accounts.id),
     isActive: boolean().default(true).notNull(),
     createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
@@ -148,6 +188,9 @@ export const transactionLines = pgTable(
     accountId: uuid()
       .notNull()
       .references(() => accounts.id),
+    // Nullable: masjid/ISAK-35 edition leaves it null (single 'umum' fund);
+    // ZakatMu edition enforces non-null per PSAK 109 at the app layer.
+    fundId: uuid().references(() => funds.id),
     debit: numeric({ precision: 18, scale: 2 }).default('0').notNull(),
     credit: numeric({ precision: 18, scale: 2 }).default('0').notNull(),
     description: text(),
@@ -156,6 +199,7 @@ export const transactionLines = pgTable(
   (t) => ({
     txIdx: index().on(t.transactionId),
     accountIdx: index().on(t.accountId),
+    fundIdx: index().on(t.fundId),
     debitNonNeg: check('tl_debit_non_neg', sql`${t.debit} >= 0`),
     creditNonNeg: check('tl_credit_non_neg', sql`${t.credit} >= 0`),
     debitXorCredit: check(
@@ -241,6 +285,9 @@ export const journalLines = pgTable(
     accountId: uuid()
       .notNull()
       .references(() => accounts.id),
+    // Fund dimension carried from the transaction to the posted ledger so
+    // PSAK 109 per-dana reports read straight from journal lines.
+    fundId: uuid().references(() => funds.id),
     debit: numeric({ precision: 18, scale: 2 }).default('0').notNull(),
     credit: numeric({ precision: 18, scale: 2 }).default('0').notNull(),
     description: text(),
@@ -249,6 +296,7 @@ export const journalLines = pgTable(
   (t) => ({
     journalIdx: index().on(t.journalId),
     accountIdx: index().on(t.accountId),
+    fundIdx: index().on(t.fundId),
     debitNonNeg: check('jl_debit_non_neg', sql`${t.debit} >= 0`),
     creditNonNeg: check('jl_credit_non_neg', sql`${t.credit} >= 0`),
     debitXorCredit: check(
@@ -259,6 +307,7 @@ export const journalLines = pgTable(
 );
 
 export type Account = typeof accounts.$inferSelect;
+export type Fund = typeof funds.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
 export type TransactionLine = typeof transactionLines.$inferSelect;
 export type Journal = typeof journals.$inferSelect;

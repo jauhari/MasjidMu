@@ -21,11 +21,11 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, count, desc, eq, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, gte, isNull, lte, or, sql } from 'drizzle-orm';
 import { withTenant } from '../../../db/client.js';
 import { transactionLines, transactions } from '../../../db/schema/accounting.js';
 import { auditInterceptor } from '../../../lib/audit.js';
-import { findTenantUser } from '../../../lib/user-mapping.js';
+import { resolveActingUser } from '../../../lib/user-mapping.js';
 import { requireSession, type SessionVars } from '../../../middleware/session.js';
 import { requireTenant, type TenantVars } from '../../../middleware/tenant.js';
 import {
@@ -45,6 +45,7 @@ import {
   transitionStatus,
   validateLines,
 } from './service.js';
+import { commitImport, matchAccounts, parseImportFile } from './import.js';
 import { IllegalTransitionError } from './state-machine.js';
 
 const lineSchema = z.object({
@@ -58,6 +59,7 @@ const lineSchema = z.object({
     .transform((v) => String(v))
     .refine((s) => /^\d+(\.\d{1,2})?$/.test(s), 'credit must be numeric'),
   description: z.string().max(500).nullable().optional(),
+  fundId: z.string().uuid().nullable().optional(),
 });
 
 const createSchema = z.object({
@@ -88,6 +90,71 @@ const forceEditSchema = z.object({
 const forceDeleteSchema = z.object({
   reason: z.string().min(10).max(2000),
 });
+
+const importCommitSchema = z.object({
+  reason: z.string().min(10).max(2000),
+  groups: z.array(
+    z.object({
+      date: z.string(),
+      description: z.string().min(1).max(2000),
+      referenceNo: z.string().max(100).nullable().optional(),
+      lines: z.array(lineSchema).min(2),
+    }),
+  ).min(1),
+});
+
+const importUrlSchema = z.object({
+  url: z.string().url(),
+  sheet: z.string().min(1).max(100).optional(),
+});
+
+/**
+ * Extract spreadsheet ID from a Google Sheets URL.
+ * Supports common formats:
+ *   - https://docs.google.com/spreadsheets/d/{ID}/edit
+ *   - https://docs.google.com/spreadsheets/d/{ID}/edit#gid=0
+ *   - https://docs.google.com/spreadsheets/d/{ID}/
+ */
+function extractGoogleSheetId(url: string): string | null {
+  const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  return m ? m[1]! : null;
+}
+
+/**
+ * Fetch a Google Sheets workbook as XLSX using the public export endpoint.
+ * Sheet must be "Anyone with link can view" or published to web.
+ *
+ * Returns the raw bytes; parser picks the named tab from the workbook.
+ */
+async function fetchGoogleSheetXlsx(sheetId: string): Promise<Buffer> {
+  const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`;
+  const res = await fetch(exportUrl, {
+    redirect: 'follow',
+    headers: {
+      // Identify ourselves so Google can rate-limit gracefully.
+      'User-Agent': 'MasjidMu-Importer/1.0',
+    },
+  });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('sheet not public — share as "Anyone with link can view"');
+    }
+    if (res.status === 404) {
+      throw new Error('sheet not found — check the URL');
+    }
+    throw new Error(`google_export_failed_${res.status}`);
+  }
+
+  // Google sometimes returns text/html (a sign-in page) instead of xlsx
+  // when the sheet isn't actually public. Detect by content-type.
+  const ct = res.headers.get('content-type') ?? '';
+  if (!ct.includes('spreadsheet') && !ct.includes('octet-stream') && !ct.includes('zip')) {
+    throw new Error('sheet not public — got HTML response (likely sign-in page)');
+  }
+
+  const ab = await res.arrayBuffer();
+  return Buffer.from(ab);
+}
 
 async function generateTransactionNo(tenantId: string, tenantSlug: string, date: Date): Promise<string> {
   const yyyymm = `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -123,20 +190,62 @@ export const transactionsRoute = new Hono<{
   .get('/', requirePermission('transactions.read'), async (c) => {
     const tenantId = c.get('tenantId')!;
     const status = c.req.query('status');
-    const rows = await withTenant(tenantId, async (tx) => {
-      return tx
-        .select()
-        .from(transactions)
-        .where(
-          and(
-            isNull(transactions.deletedAt),
-            ...(status ? [eq(transactions.status, status as 'draft' | 'submitted' | 'approved' | 'rejected' | 'posted')] : []),
-          ),
-        )
-        .orderBy(desc(transactions.transactionDate))
-        .limit(200);
-    });
-    return c.json({ data: rows });
+    const q = c.req.query('q')?.trim() || null;
+    const offset = Math.max(0, Number(c.req.query('offset')) || 0);
+    const limit = Math.min(200, Math.max(1, Number(c.req.query('limit')) || 50));
+
+    const filters: (ReturnType<typeof eq> | ReturnType<typeof sql> | ReturnType<typeof or>)[] = [isNull(transactions.deletedAt)];
+    if (status) {
+      filters.push(
+        eq(transactions.status, status as 'draft' | 'submitted' | 'approved' | 'rejected' | 'posted'),
+      );
+    }
+    if (q) {
+      filters.push(
+        or(
+          sql`${transactions.transactionNo} ILIKE ${`%${q}%`}`,
+          sql`${transactions.description} ILIKE ${`%${q}%`}`,
+          sql`${transactions.referenceNo} ILIKE ${`%${q}%`}`,
+        ),
+      );
+    }
+    const dateFrom = c.req.query('dateFrom') || null;
+    const dateTo = c.req.query('dateTo') || null;
+    if (dateFrom) {
+      filters.push(gte(transactions.transactionDate, new Date(dateFrom)));
+    }
+    if (dateTo) {
+      // Include full day: add 1 day - 1ms
+      const end = new Date(dateTo);
+      end.setDate(end.getDate() + 1);
+      end.setMilliseconds(end.getMilliseconds() - 1);
+      filters.push(lte(transactions.transactionDate, end));
+    }
+    const accountId = c.req.query('accountId') || null;
+    if (accountId) {
+      filters.push(
+        sql`${transactions.id} IN (
+          SELECT tl.transaction_id FROM transaction_lines tl WHERE tl.account_id = ${accountId}::uuid
+        )`,
+      );
+    }
+
+    const [rows, totalRow] = await withTenant(tenantId, async (tx) =>
+      Promise.all([
+        tx
+          .select()
+          .from(transactions)
+          .where(and(...filters))
+          .orderBy(desc(transactions.transactionDate))
+          .limit(limit)
+          .offset(offset),
+        tx
+          .select({ total: count() })
+          .from(transactions)
+          .where(and(...filters)),
+      ]),
+    );
+    return c.json({ data: rows, total: totalRow[0]?.total ?? 0, offset, limit });
   })
 
   .post('/', requirePermission('transactions.create'), zValidator('json', createSchema), async (c) => {
@@ -145,7 +254,7 @@ export const transactionsRoute = new Hono<{
     const authUser = c.get('user')!;
     const body = c.req.valid('json');
 
-    const u = await findTenantUser(authUser.id, tenantId);
+    const u = await resolveActingUser(authUser, tenantId, !!c.get('isSuperAdmin'));
     if (!u) return c.json({ error: 'tenant_user_missing' }, 422);
 
     try {
@@ -177,6 +286,7 @@ export const transactionsRoute = new Hono<{
         body.lines.map((l, i) => ({
           transactionId: t!.id,
           accountId: l.accountId,
+          fundId: l.fundId ?? null,
           debit: l.debit || '0',
           credit: l.credit || '0',
           description: l.description ?? null,
@@ -357,7 +467,7 @@ export const transactionsRoute = new Hono<{
     const authUser = c.get('user')!;
     const id = c.req.param('id');
 
-    const u = await findTenantUser(authUser.id, tenantId);
+    const u = await resolveActingUser(authUser, tenantId, !!c.get('isSuperAdmin'));
     if (!u) return c.json({ error: 'tenant_user_missing' }, 422);
 
     try {
@@ -384,7 +494,7 @@ export const transactionsRoute = new Hono<{
       const id = c.req.param('id');
       const body = c.req.valid('json');
 
-      const u = await findTenantUser(authUser.id, tenantId);
+      const u = await resolveActingUser(authUser, tenantId, !!c.get('isSuperAdmin'));
       if (!u) return c.json({ error: 'tenant_user_missing' }, 422);
 
       try {
@@ -419,7 +529,7 @@ export const transactionsRoute = new Hono<{
       const id = c.req.param('id');
       const body = c.req.valid('json');
 
-      const u = await findTenantUser(authUser.id, tenantId);
+      const u = await resolveActingUser(authUser, tenantId, !!c.get('isSuperAdmin'));
       if (!u) return c.json({ error: 'tenant_user_missing' }, 422);
 
       try {
@@ -433,6 +543,129 @@ export const transactionsRoute = new Hono<{
       } catch (e) {
         const m = mapErrorToResponse(e);
         return c.json(m.body, m.status);
+      }
+    },
+  )
+
+  // ─── Historical journal import (god_mode only) ─────────────────────────────
+  .post('/_import/parse', requirePermission('transactions.god_mode'), async (c) => {
+    const tenantId = c.get('tenantId')!;
+    const form = await c.req.parseBody();
+    const file = form['file'];
+    const sheetName = (form['sheet'] as string) || 'JURNAL';
+
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: 'file_required' }, 400);
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      return c.json({ error: 'file_too_large', detail: 'max 20MB' }, 413);
+    }
+
+    try {
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const result = await parseImportFile(buffer, sheetName);
+      const unmatched = await matchAccounts(tenantId, result.groups);
+      return c.json({
+        data: {
+          totalRows: result.totalRows,
+          totalGroups: result.groups.length,
+          unmatchedAccountNames: unmatched,
+          errors: result.errors,
+          groups: result.groups,
+        },
+      });
+    } catch (e) {
+      return c.json({ error: 'parse_failed', detail: (e as Error).message }, 400);
+    }
+  })
+
+  .post(
+    '/_import/parse-url',
+    requirePermission('transactions.god_mode'),
+    zValidator('json', importUrlSchema),
+    async (c) => {
+      const tenantId = c.get('tenantId')!;
+      const body = c.req.valid('json');
+
+      const sheetId = extractGoogleSheetId(body.url);
+      if (!sheetId) {
+        return c.json(
+          { error: 'invalid_url', detail: 'expected a Google Sheets URL like https://docs.google.com/spreadsheets/d/{ID}/edit' },
+          400,
+        );
+      }
+
+      let buffer: Buffer;
+      try {
+        buffer = await fetchGoogleSheetXlsx(sheetId);
+      } catch (e) {
+        return c.json({ error: 'fetch_failed', detail: (e as Error).message }, 400);
+      }
+
+      if (buffer.byteLength > 20 * 1024 * 1024) {
+        return c.json({ error: 'file_too_large', detail: 'max 20MB after fetch' }, 413);
+      }
+
+      try {
+        const sheetName = body.sheet || 'JURNAL';
+        const result = await parseImportFile(buffer, sheetName);
+        const unmatched = await matchAccounts(tenantId, result.groups);
+        return c.json({
+          data: {
+            totalRows: result.totalRows,
+            totalGroups: result.groups.length,
+            unmatchedAccountNames: unmatched,
+            errors: result.errors,
+            groups: result.groups,
+            sourceSheetId: sheetId,
+          },
+        });
+      } catch (e) {
+        return c.json({ error: 'parse_failed', detail: (e as Error).message }, 400);
+      }
+    },
+  )
+
+  .post(
+    '/_import/commit',
+    requirePermission('transactions.god_mode'),
+    zValidator('json', importCommitSchema),
+    async (c) => {
+      const tenantId = c.get('tenantId')!;
+      const tenant = c.get('tenant')!;
+      const authUser = c.get('user')!;
+      const body = c.req.valid('json');
+
+      const u = await resolveActingUser(authUser, tenantId, !!c.get('isSuperAdmin'));
+      if (!u) return c.json({ error: 'tenant_user_missing' }, 422);
+
+      // Validate every group is balanced before committing
+      for (let i = 0; i < body.groups.length; i++) {
+        const g = body.groups[i];
+        try {
+          await validateLines(tenantId, g.lines);
+        } catch (e) {
+          return c.json(
+            {
+              error: 'invalid_group',
+              detail: `group ${i + 1} (${g.description}): ${(e as Error).message}`,
+            },
+            422,
+          );
+        }
+      }
+
+      try {
+        const result = await commitImport({
+          tenantId,
+          tenantSlug: tenant.slug,
+          appUserId: u.id,
+          reason: body.reason,
+          groups: body.groups,
+        });
+        return c.json({ data: result });
+      } catch (e) {
+        return c.json({ error: 'import_failed', detail: (e as Error).message }, 500);
       }
     },
   );
