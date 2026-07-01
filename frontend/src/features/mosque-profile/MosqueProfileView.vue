@@ -1,15 +1,18 @@
 <script setup lang="ts">
 /**
- * Profil Masjid form — single-page edit. GET on mount, PATCH on save.
- *
- * The backend auto-creates the row on first GET, so callers always have a
- * stable id. No "create" flow needed.
+ * Profil Masjid — baca (GET) & ubah (PATCH). Baris dibuat otomatis saat pertama kali dibuka.
  */
-import { onMounted, reactive, ref } from 'vue';
-import { api } from '@/shared/api/client';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
+import { api, formatApiError } from '@/shared/api/client';
+import { useAuthStore } from '@/features/auth/store';
 import Button from '@/shared/ui/Button.vue';
 import FormField from '@/shared/ui/FormField.vue';
-import { INPUT_BASE, TEXTAREA_BASE } from '@/shared/ui/input-classes';
+import PageHeader from '@/shared/ui/PageHeader.vue';
 
 interface MosqueProfile {
   id: string;
@@ -32,6 +35,7 @@ interface MosqueProfile {
   instagramUrl: string | null;
   tiktokUrl: string | null;
   logoUrl: string | null;
+  bannerUrl: string | null;
   bankName: string | null;
   bankAccountName: string | null;
   bankAccountNumber: string | null;
@@ -40,42 +44,81 @@ interface MosqueProfile {
   mission: string | null;
 }
 
+type MosqueProfileForm = {
+  [K in keyof Omit<MosqueProfile, 'id' | 'tenantId'>]: string;
+};
+
+const auth = useAuthStore();
+const canEdit = computed(() => auth.hasPermission('profile.update'));
+
 const loading = ref(true);
 const saving = ref(false);
 const error = ref<string | null>(null);
 const ok = ref(false);
-const form = reactive<Partial<MosqueProfile>>({});
+const form = reactive<MosqueProfileForm>({
+  officialName: '',
+  shortName: '',
+  province: '',
+  city: '',
+  district: '',
+  village: '',
+  postalCode: '',
+  addressDetail: '',
+  latitude: '',
+  longitude: '',
+  phone: '',
+  email: '',
+  website: '',
+  youtubeUrl: '',
+  facebookUrl: '',
+  instagramUrl: '',
+  tiktokUrl: '',
+  logoUrl: '',
+  bannerUrl: '',
+  bankName: '',
+  bankAccountName: '',
+  bankAccountNumber: '',
+  history: '',
+  vision: '',
+  mission: '',
+});
+
+function applyProfile(data: MosqueProfile): void {
+  const { id: _id, tenantId: _tid, ...rest } = data;
+  void _id;
+  void _tid;
+  for (const key of Object.keys(form) as (keyof MosqueProfileForm)[]) {
+    form[key] = rest[key] ?? '';
+  }
+}
 
 async function load(): Promise<void> {
   loading.value = true;
+  error.value = null;
   try {
     const res = await api.get<{ data: MosqueProfile }>('/api/v1/mosque-profile');
-    Object.assign(form, res.data);
+    applyProfile(res.data);
   } catch (err) {
-    error.value = (err as Error).message;
+    error.value = formatApiError(err, 'Gagal memuat profil masjid');
   } finally {
     loading.value = false;
   }
 }
 
 async function save(): Promise<void> {
+  if (!canEdit.value) return;
   saving.value = true;
   error.value = null;
   ok.value = false;
   try {
-    // Filter out id/tenantId — backend ignores but cleaner this way.
-    const { id: _id, tenantId: _tid, ...payload } = form as MosqueProfile;
-    void _id;
-    void _tid;
-    // Replace empty string with null so optional fields stay null.
     const cleaned = Object.fromEntries(
-      Object.entries(payload).map(([k, v]) => [k, v === '' ? null : v]),
+      Object.entries(form).map(([k, v]) => [k, v === '' ? null : v]),
     );
-    await api.patch('/api/v1/mosque-profile', cleaned);
+    const res = await api.patch<{ data: MosqueProfile }>('/api/v1/mosque-profile', cleaned);
+    applyProfile(res.data);
     ok.value = true;
   } catch (err) {
-    const e = err as { body?: { error?: string } };
-    error.value = e.body?.error ?? (err as Error).message;
+    error.value = formatApiError(err, 'Gagal menyimpan profil');
   } finally {
     saving.value = false;
   }
@@ -85,78 +128,121 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="space-y-4">
-    <header class="flex items-center justify-between">
-      <div>
-        <h1 class="text-xl font-semibold text-slate-900">Profil Masjid</h1>
-        <p class="text-sm text-slate-500">Identitas masjid yang ditampilkan di portal publik</p>
-      </div>
-      <Button :loading="saving" :disabled="loading" @click="save">Simpan</Button>
-    </header>
+  <div class="flex flex-col gap-4">
+    <PageHeader
+      title="Profil Masjid"
+      :crumbs="[{ label: 'Dashboard', to: '/' }, { label: 'Konten' }, { label: 'Profil Masjid' }]"
+      :description="
+        auth.tenantSlug
+          ? `Data masjid untuk ${auth.tenantSlug}.hisabmu.id — tampil di portal publik.`
+          : 'Identitas masjid yang ditampilkan di portal publik'
+      "
+    >
+      <template #actions>
+        <Button v-if="canEdit" :loading="saving" :disabled="loading" @click="save">Simpan</Button>
+      </template>
+    </PageHeader>
 
-    <p v-if="error" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{{ error }}</p>
-    <p v-if="ok" class="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Tersimpan.</p>
+    <Alert v-if="!canEdit && !loading">
+      <AlertDescription>Anda hanya bisa melihat profil. Hubungi admin untuk mengubah data.</AlertDescription>
+    </Alert>
 
-    <div v-if="loading" class="h-64 animate-pulse rounded-xl bg-white border border-slate-200" />
+    <Alert v-if="error" variant="destructive">
+      <AlertDescription>{{ error }}</AlertDescription>
+    </Alert>
+    <Alert v-if="ok">
+      <AlertDescription>Profil masjid tersimpan.</AlertDescription>
+    </Alert>
 
-    <form v-else class="grid grid-cols-1 gap-6 md:grid-cols-2" @submit.prevent="save">
-      <section class="rounded-xl border border-slate-200 bg-white p-5">
-        <h2 class="mb-3 text-sm font-semibold text-slate-900">Identitas</h2>
-        <FormField label="Nama resmi">
-          <input v-model="form.officialName" :class="INPUT_BASE" placeholder="Masjid …" />
-        </FormField>
-        <FormField label="Nama singkat">
-          <input v-model="form.shortName" :class="INPUT_BASE" />
-        </FormField>
-        <FormField label="Logo (URL)">
-          <input v-model="form.logoUrl" :class="INPUT_BASE" placeholder="https://…" />
-        </FormField>
-      </section>
+    <Card v-if="loading">
+      <CardContent class="pt-6">
+        <Skeleton class="h-64 w-full" />
+      </CardContent>
+    </Card>
 
-      <section class="rounded-xl border border-slate-200 bg-white p-5">
-        <h2 class="mb-3 text-sm font-semibold text-slate-900">Alamat</h2>
-        <div class="grid grid-cols-2 gap-3">
-          <FormField label="Provinsi"><input v-model="form.province" :class="INPUT_BASE" /></FormField>
-          <FormField label="Kota / Kabupaten"><input v-model="form.city" :class="INPUT_BASE" /></FormField>
-          <FormField label="Kecamatan"><input v-model="form.district" :class="INPUT_BASE" /></FormField>
-          <FormField label="Kelurahan / Desa"><input v-model="form.village" :class="INPUT_BASE" /></FormField>
-          <FormField label="Kode Pos"><input v-model="form.postalCode" :class="INPUT_BASE" /></FormField>
-        </div>
-        <FormField label="Detail alamat">
-          <textarea v-model="form.addressDetail" :class="TEXTAREA_BASE" rows="2" />
-        </FormField>
-        <div class="grid grid-cols-2 gap-3">
-          <FormField label="Latitude"><input v-model="form.latitude" :class="INPUT_BASE" /></FormField>
-          <FormField label="Longitude"><input v-model="form.longitude" :class="INPUT_BASE" /></FormField>
-        </div>
-      </section>
+    <fieldset v-else :disabled="!canEdit" class="grid grid-cols-1 gap-6 border-0 p-0 md:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle class="text-sm">Identitas</CardTitle>
+        </CardHeader>
+        <CardContent class="flex flex-col gap-3">
+          <FormField label="Nama resmi" required>
+            <Input v-model="form.officialName" placeholder="Masjid Al-Uula" />
+          </FormField>
+          <FormField label="Nama singkat">
+            <Input v-model="form.shortName" placeholder="Al-Uula" />
+          </FormField>
+          <FormField label="Logo (URL)">
+            <Input v-model="form.logoUrl" placeholder="https://…" type="url" />
+          </FormField>
+          <FormField label="Banner (URL)">
+            <Input v-model="form.bannerUrl" placeholder="https://…" type="url" />
+          </FormField>
+        </CardContent>
+      </Card>
 
-      <section class="rounded-xl border border-slate-200 bg-white p-5">
-        <h2 class="mb-3 text-sm font-semibold text-slate-900">Kontak & Media</h2>
-        <FormField label="Telepon"><input v-model="form.phone" :class="INPUT_BASE" /></FormField>
-        <FormField label="Email"><input v-model="form.email" :class="INPUT_BASE" /></FormField>
-        <FormField label="Website"><input v-model="form.website" :class="INPUT_BASE" /></FormField>
-        <FormField label="YouTube"><input v-model="form.youtubeUrl" :class="INPUT_BASE" /></FormField>
-        <FormField label="Instagram"><input v-model="form.instagramUrl" :class="INPUT_BASE" /></FormField>
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle class="text-sm">Alamat</CardTitle>
+        </CardHeader>
+        <CardContent class="flex flex-col gap-3">
+          <div class="grid grid-cols-2 gap-3">
+            <FormField label="Provinsi"><Input v-model="form.province" /></FormField>
+            <FormField label="Kota / Kabupaten"><Input v-model="form.city" /></FormField>
+            <FormField label="Kecamatan"><Input v-model="form.district" /></FormField>
+            <FormField label="Kelurahan / Desa"><Input v-model="form.village" /></FormField>
+            <FormField label="Kode Pos"><Input v-model="form.postalCode" /></FormField>
+          </div>
+          <FormField label="Detail alamat">
+            <Textarea v-model="form.addressDetail" rows="2" />
+          </FormField>
+          <div class="grid grid-cols-2 gap-3">
+            <FormField label="Latitude"><Input v-model="form.latitude" /></FormField>
+            <FormField label="Longitude"><Input v-model="form.longitude" /></FormField>
+          </div>
+        </CardContent>
+      </Card>
 
-      <section class="rounded-xl border border-slate-200 bg-white p-5">
-        <h2 class="mb-3 text-sm font-semibold text-slate-900">Rekening Bank</h2>
-        <FormField label="Nama bank"><input v-model="form.bankName" :class="INPUT_BASE" /></FormField>
-        <FormField label="Atas nama"><input v-model="form.bankAccountName" :class="INPUT_BASE" /></FormField>
-        <FormField label="Nomor rekening"><input v-model="form.bankAccountNumber" :class="INPUT_BASE" /></FormField>
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle class="text-sm">Kontak & Media Sosial</CardTitle>
+        </CardHeader>
+        <CardContent class="flex flex-col gap-3">
+          <FormField label="Telepon"><Input v-model="form.phone" /></FormField>
+          <FormField label="Email"><Input v-model="form.email" type="email" /></FormField>
+          <FormField label="Website"><Input v-model="form.website" type="url" placeholder="https://…" /></FormField>
+          <FormField label="YouTube"><Input v-model="form.youtubeUrl" type="url" placeholder="https://…" /></FormField>
+          <FormField label="Facebook"><Input v-model="form.facebookUrl" type="url" placeholder="https://…" /></FormField>
+          <FormField label="Instagram"><Input v-model="form.instagramUrl" type="url" placeholder="https://…" /></FormField>
+          <FormField label="TikTok"><Input v-model="form.tiktokUrl" type="url" placeholder="https://…" /></FormField>
+        </CardContent>
+      </Card>
 
-      <section class="md:col-span-2 rounded-xl border border-slate-200 bg-white p-5">
-        <h2 class="mb-3 text-sm font-semibold text-slate-900">Narasi</h2>
-        <FormField label="Sejarah">
-          <textarea v-model="form.history" :class="TEXTAREA_BASE" rows="3" />
-        </FormField>
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <FormField label="Visi"><textarea v-model="form.vision" :class="TEXTAREA_BASE" rows="2" /></FormField>
-          <FormField label="Misi"><textarea v-model="form.mission" :class="TEXTAREA_BASE" rows="2" /></FormField>
-        </div>
-      </section>
-    </form>
+      <Card>
+        <CardHeader>
+          <CardTitle class="text-sm">Rekening Bank</CardTitle>
+        </CardHeader>
+        <CardContent class="flex flex-col gap-3">
+          <FormField label="Nama bank"><Input v-model="form.bankName" /></FormField>
+          <FormField label="Atas nama"><Input v-model="form.bankAccountName" /></FormField>
+          <FormField label="Nomor rekening"><Input v-model="form.bankAccountNumber" /></FormField>
+        </CardContent>
+      </Card>
+
+      <Card class="md:col-span-2">
+        <CardHeader>
+          <CardTitle class="text-sm">Narasi</CardTitle>
+        </CardHeader>
+        <CardContent class="flex flex-col gap-3">
+          <FormField label="Sejarah">
+            <Textarea v-model="form.history" rows="3" />
+          </FormField>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <FormField label="Visi"><Textarea v-model="form.vision" rows="2" /></FormField>
+            <FormField label="Misi"><Textarea v-model="form.mission" rows="2" /></FormField>
+          </div>
+        </CardContent>
+      </Card>
+    </fieldset>
   </div>
 </template>

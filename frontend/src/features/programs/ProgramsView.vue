@@ -2,15 +2,28 @@
 /**
  * Programs list + create/edit modal + delete.
  */
-import { onMounted, reactive, ref } from 'vue';
+import { onMounted, reactive, ref, watch } from 'vue';
 import { Plus, Pencil, Trash2 } from 'lucide-vue-next';
+import { useContentBulkActions } from '@/shared/composables/useContentBulkActions';
+
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
 import { api } from '@/shared/api/client';
+import AppCheckbox from '@/shared/ui/AppCheckbox.vue';
+import AppSelect from '@/shared/ui/AppSelect.vue';
 import Button from '@/shared/ui/Button.vue';
-import Modal from '@/shared/ui/Modal.vue';
-import FormField from '@/shared/ui/FormField.vue';
+import BulkFieldModal from '@/shared/ui/BulkFieldModal.vue';
 import ConfirmDialog from '@/shared/ui/ConfirmDialog.vue';
+import ContentBulkBar from '@/shared/ui/ContentBulkBar.vue';
 import DatePicker from '@/shared/ui/DatePicker.vue';
-import { INPUT_BASE, TEXTAREA_BASE } from '@/shared/ui/input-classes';
+import FormField from '@/shared/ui/FormField.vue';
+import Modal from '@/shared/ui/Modal.vue';
+import PageHeader from '@/shared/ui/PageHeader.vue';
+import { cn } from '@/lib/utils';
 
 type Status = 'draft' | 'active' | 'completed' | 'cancelled';
 
@@ -36,10 +49,29 @@ const error = ref<string | null>(null);
 
 const filterStatus = ref<'' | Status>('');
 
+const statusFilterOptions = [
+  { value: '', label: 'Semua status' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'active', label: 'Aktif' },
+  { value: 'completed', label: 'Selesai' },
+  { value: 'cancelled', label: 'Batal' },
+];
+
+const statusFormOptions = [
+  { value: 'draft', label: 'Draft' },
+  { value: 'active', label: 'Aktif' },
+  { value: 'completed', label: 'Selesai' },
+  { value: 'cancelled', label: 'Batal' },
+];
+
 const editing = ref<Program | null>(null);
 const modalOpen = ref(false);
 const confirmOpen = ref(false);
 const toDelete = ref<Program | null>(null);
+
+const bulkStatusOpen = ref(false);
+const bulkStatus = ref<Status>('active');
+const bulkDeleteOpen = ref(false);
 
 const form = reactive({
   title: '',
@@ -76,6 +108,31 @@ async function load(): Promise<void> {
   } finally {
     loading.value = false;
   }
+}
+
+watch(filterStatus, load);
+
+const {
+  selectedCount,
+  isAllSelected,
+  isSelected,
+  toggleSelectAll,
+  toggleSelect,
+  clearSelection,
+  bulkActing,
+  bulkError,
+  bulkPatch,
+  bulkDelete,
+} = useContentBulkActions(items, '/api/v1/programs', 'program', load);
+
+async function applyBulkStatus(): Promise<void> {
+  await bulkPatch({ status: bulkStatus.value });
+  bulkStatusOpen.value = false;
+}
+
+async function confirmBulkDelete(): Promise<void> {
+  await bulkDelete();
+  bulkDeleteOpen.value = false;
 }
 
 function openCreate(): void {
@@ -162,84 +219,135 @@ const STATUS_LABEL: Record<Status, string> = {
 };
 
 const STATUS_BADGE: Record<Status, string> = {
-  draft: 'bg-slate-100 text-slate-600',
-  active: 'bg-emerald-50 text-emerald-700',
-  completed: 'bg-blue-50 text-blue-700',
-  cancelled: 'bg-rose-50 text-rose-700',
+  draft: 'bg-muted text-muted-foreground',
+  active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  completed: 'bg-blue-50 text-blue-700 border-blue-200',
+  cancelled: 'bg-rose-50 text-rose-700 border-rose-200',
 };
 
 onMounted(load);
 </script>
 
 <template>
-  <div class="space-y-4">
-    <header class="flex items-center justify-between">
-      <div>
-        <h1 class="text-xl font-semibold text-slate-900">Program</h1>
-        <p class="text-sm text-slate-500">Kelola program masjid (penggalangan, kegiatan jangka panjang)</p>
-      </div>
-      <Button @click="openCreate"><Plus class="h-4 w-4" /> Tambah</Button>
-    </header>
+  <div class="flex flex-col gap-4">
+    <PageHeader
+      title="Program"
+      description="Kelola program masjid (penggalangan, kegiatan jangka panjang)"
+      :crumbs="[{ label: 'Dashboard', to: '/' }, { label: 'Konten' }, { label: 'Program' }]"
+    >
+      <template #actions>
+        <Button @click="openCreate"><Plus class="h-4 w-4" /> Tambah</Button>
+      </template>
+    </PageHeader>
 
-    <div class="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <select v-model="filterStatus" :class="INPUT_BASE" style="max-width:160px" @change="load()">
-        <option value="">Semua status</option>
-        <option value="draft">Draft</option>
-        <option value="active">Aktif</option>
-        <option value="completed">Selesai</option>
-        <option value="cancelled">Batal</option>
-      </select>
-    </div>
+    <Card>
+      <CardContent class="flex flex-wrap items-center gap-2 pt-6">
+        <AppSelect v-model="filterStatus" :options="statusFilterOptions" class="max-w-[160px]" />
+      </CardContent>
+    </Card>
 
-    <p v-if="error" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{{ error }}</p>
+    <ContentBulkBar
+      :selected-count="selectedCount"
+      :all-selected="isAllSelected"
+      :acting="bulkActing"
+      :error="bulkError"
+      @toggle-all="toggleSelectAll"
+      @clear="clearSelection"
+    >
+      <Button variant="secondary" size="sm" :disabled="bulkActing" @click="bulkStatusOpen = true">
+        Ubah status
+      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        :disabled="bulkActing"
+        @click="bulkPatch({ isPublic: true })"
+      >
+        Publikkan
+      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        :disabled="bulkActing"
+        @click="bulkPatch({ isPublic: false })"
+      >
+        Sembunyikan
+      </Button>
+      <Button variant="danger" size="sm" :disabled="bulkActing" @click="bulkDeleteOpen = true">
+        Hapus
+      </Button>
+    </ContentBulkBar>
+
+    <Alert v-if="error" variant="destructive">
+      <AlertDescription>{{ error }}</AlertDescription>
+    </Alert>
 
     <div v-if="loading" class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-      <div v-for="i in 3" :key="i" class="h-40 animate-pulse rounded-xl bg-white border border-slate-200" />
+      <Card v-for="i in 3" :key="i">
+        <CardContent class="pt-6">
+          <Skeleton class="h-40 w-full" />
+        </CardContent>
+      </Card>
     </div>
 
     <div v-else-if="items.length > 0" class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-      <article v-for="p in items" :key="p.id" class="flex flex-col rounded-xl border border-slate-200 bg-white p-4">
-        <div class="mb-2 flex items-start justify-between gap-2">
-          <h3 class="line-clamp-2 text-sm font-semibold text-slate-900">{{ p.title }}</h3>
-          <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium" :class="STATUS_BADGE[p.status]">
-            {{ STATUS_LABEL[p.status] }}
-          </span>
-        </div>
-        <p class="mb-3 line-clamp-2 text-xs text-slate-500">{{ p.description ?? '—' }}</p>
-        <div v-if="p.targetAmount" class="mb-3">
-          <div class="flex items-center justify-between text-[11px] text-slate-500">
-            <span>{{ fmtIDR(p.collectedAmount) }}</span>
-            <span>{{ progress(p) }}% / {{ fmtIDR(p.targetAmount) }}</span>
+      <Card
+        v-for="p in items"
+        :key="p.id"
+        :class="isSelected(p.id) ? 'ring-2 ring-primary/30' : ''"
+      >
+        <CardContent class="flex flex-col pt-6">
+          <div class="mb-2 flex items-start justify-between gap-2">
+            <div class="flex min-w-0 items-start gap-2">
+              <AppCheckbox
+                class="mt-0.5 shrink-0"
+                :model-value="isSelected(p.id)"
+                @update:model-value="toggleSelect(p.id)"
+              />
+              <h3 class="line-clamp-2 text-sm font-semibold text-foreground">{{ p.title }}</h3>
+            </div>
+            <Badge variant="outline" :class="cn('shrink-0 text-[11px] font-medium', STATUS_BADGE[p.status])">
+              {{ STATUS_LABEL[p.status] }}
+            </Badge>
           </div>
-          <div class="mt-1 h-1.5 w-full rounded-full bg-slate-200">
-            <div class="h-1.5 rounded-full bg-brand-500" :style="{ width: `${progress(p)}%` }" />
+          <p class="mb-3 line-clamp-2 text-xs text-muted-foreground">{{ p.description ?? '—' }}</p>
+          <div v-if="p.targetAmount" class="mb-3">
+            <div class="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>{{ fmtIDR(p.collectedAmount) }}</span>
+              <span>{{ progress(p) }}% / {{ fmtIDR(p.targetAmount) }}</span>
+            </div>
+            <div class="mt-1 h-1.5 w-full rounded-full bg-muted">
+              <div class="h-1.5 rounded-full bg-primary" :style="{ width: `${progress(p)}%` }" />
+            </div>
           </div>
-        </div>
-        <div class="mt-auto flex items-center justify-end gap-1">
-          <Button variant="ghost" size="sm" @click="openEdit(p)"><Pencil class="h-3.5 w-3.5" /></Button>
-          <Button variant="ghost" size="sm" @click="askDelete(p)"><Trash2 class="h-3.5 w-3.5 text-red-600" /></Button>
-        </div>
-      </article>
+          <div class="mt-auto flex items-center justify-end gap-1">
+            <Button variant="ghost" size="sm" @click="openEdit(p)"><Pencil class="h-3.5 w-3.5" /></Button>
+            <Button variant="ghost" size="sm" @click="askDelete(p)"><Trash2 class="h-3.5 w-3.5 text-destructive" /></Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
 
-    <p v-else class="rounded-xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center text-sm text-slate-500">
-      Belum ada program.
-    </p>
+    <Card v-else>
+      <CardContent class="py-10 text-center text-sm text-muted-foreground">
+        Belum ada program.
+      </CardContent>
+    </Card>
 
     <Modal v-model:open="modalOpen" :title="editing ? 'Edit Program' : 'Program Baru'" size="lg">
       <form class="space-y-3" @submit.prevent="save">
         <FormField label="Judul" required>
-          <input v-model="form.title" :class="INPUT_BASE" required minlength="2" />
+          <Input v-model="form.title" required minlength="2" />
         </FormField>
         <FormField label="Deskripsi">
-          <textarea v-model="form.description" :class="TEXTAREA_BASE" rows="3" />
+          <Textarea v-model="form.description" rows="3" />
         </FormField>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <FormField label="Cover (URL)">
-            <input v-model="form.coverUrl" :class="INPUT_BASE" placeholder="https://…" />
+            <Input v-model="form.coverUrl" placeholder="https://…" />
           </FormField>
           <FormField label="Target dana (Rp)">
-            <input v-model="form.targetAmount" :class="INPUT_BASE" placeholder="100000.00" />
+            <Input v-model="form.targetAmount" placeholder="100000.00" />
           </FormField>
           <FormField label="Mulai">
             <DatePicker v-model="form.startDate" />
@@ -248,18 +356,10 @@ onMounted(load);
             <DatePicker v-model="form.endDate" />
           </FormField>
           <FormField label="Status">
-            <select v-model="form.status" :class="INPUT_BASE">
-              <option value="draft">Draft</option>
-              <option value="active">Aktif</option>
-              <option value="completed">Selesai</option>
-              <option value="cancelled">Batal</option>
-            </select>
+            <AppSelect v-model="form.status" :options="statusFormOptions" />
           </FormField>
           <FormField label="Tampilkan publik">
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input v-model="form.isPublic" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
-              <span>Tampilkan di portal publik</span>
-            </label>
+            <AppCheckbox v-model="form.isPublic" label="Tampilkan di portal publik" />
           </FormField>
         </div>
       </form>
@@ -275,6 +375,25 @@ onMounted(load);
       :message="`Program “${toDelete?.title ?? ''}” akan dihapus.`"
       :loading="deleting"
       @confirm="doDelete"
+    />
+
+    <BulkFieldModal
+      v-model:open="bulkStatusOpen"
+      v-model="bulkStatus"
+      title="Ubah status massal"
+      label="Status baru"
+      :options="statusFormOptions"
+      :count="selectedCount"
+      :loading="bulkActing"
+      @confirm="applyBulkStatus"
+    />
+
+    <ConfirmDialog
+      v-model:open="bulkDeleteOpen"
+      title="Hapus program terpilih"
+      :message="`Hapus ${selectedCount} program terpilih?`"
+      :loading="bulkActing"
+      @confirm="confirmBulkDelete"
     />
   </div>
 </template>
