@@ -1,0 +1,292 @@
+<script setup lang="ts">
+/**
+ * Dana (Fund) — CRUD dana PSAK 109/112 + dana program/kampanye kustom.
+ *
+ * Dana sistem (isSystem=true, dari seed) tidak bisa dihapus — hanya bisa
+ * diarsipkan lewat nonaktifkan. Dana kustom (mis. "Program Ambulans") bebas
+ * dibuat kapan saja; jenis dana (fundType) dipilih dari PSAK 109 yang sudah
+ * ada — dana kustom biasanya "Infak/Sedekah" + terikat.
+ */
+import { computed, onMounted, reactive, ref } from 'vue';
+import { Plus, Pencil, Archive } from 'lucide-vue-next';
+import { api, formatApiError } from '@/shared/api/client';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import Button from '@/shared/ui/Button.vue';
+import Modal from '@/shared/ui/Modal.vue';
+import FormField from '@/shared/ui/FormField.vue';
+import AppSelect from '@/shared/ui/AppSelect.vue';
+import AppCheckbox from '@/shared/ui/AppCheckbox.vue';
+import ConfirmDialog from '@/shared/ui/ConfirmDialog.vue';
+import StatusBadge from '@/shared/ui/StatusBadge.vue';
+import PageHeader from '@/shared/ui/PageHeader.vue';
+
+type FundType = 'zakat' | 'infaq_sedekah' | 'amil' | 'nonhalal' | 'wakaf' | 'umum';
+
+interface Fund {
+  id: string;
+  code: string;
+  name: string;
+  fundType: FundType;
+  isRestricted: boolean;
+  description: string | null;
+  isActive: boolean;
+  isSystem: boolean;
+  sortOrder: number;
+}
+
+const FUND_TYPE_LABEL: Record<FundType, string> = {
+  zakat: 'Zakat',
+  infaq_sedekah: 'Infak / Sedekah',
+  amil: 'Amil',
+  nonhalal: 'Non-halal',
+  wakaf: 'Wakaf',
+  umum: 'Umum',
+};
+
+const fundTypeOptions = (Object.keys(FUND_TYPE_LABEL) as FundType[]).map((v) => ({
+  value: v,
+  label: FUND_TYPE_LABEL[v],
+}));
+
+const items = ref<Fund[]>([]);
+const loading = ref(true);
+const error = ref<string | null>(null);
+const saving = ref(false);
+const modalError = ref<string | null>(null);
+
+const modalOpen = ref(false);
+const editing = ref<Fund | null>(null);
+const confirmOpen = ref(false);
+const toArchive = ref<Fund | null>(null);
+const archiving = ref(false);
+
+const form = reactive({
+  code: '',
+  name: '',
+  fundType: 'infaq_sedekah' as FundType,
+  isRestricted: true,
+  description: '',
+  isActive: true,
+});
+
+const sortedItems = computed(() => [...items.value].sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code)));
+
+async function load(): Promise<void> {
+  loading.value = true;
+  error.value = null;
+  try {
+    const res = await api.get<{ data: Fund[] }>('/api/v1/funds');
+    items.value = res.data;
+  } catch (err) {
+    error.value = formatApiError(err);
+  } finally {
+    loading.value = false;
+  }
+}
+
+function openCreate(): void {
+  editing.value = null;
+  form.code = '';
+  form.name = '';
+  form.fundType = 'infaq_sedekah';
+  form.isRestricted = true;
+  form.description = '';
+  form.isActive = true;
+  modalError.value = null;
+  modalOpen.value = true;
+}
+
+function openEdit(f: Fund): void {
+  editing.value = f;
+  form.code = f.code;
+  form.name = f.name;
+  form.fundType = f.fundType;
+  form.isRestricted = f.isRestricted;
+  form.description = f.description ?? '';
+  form.isActive = f.isActive;
+  modalError.value = null;
+  modalOpen.value = true;
+}
+
+function validate(): string | null {
+  if (form.name.trim().length < 2) return 'Nama dana minimal 2 karakter';
+  if (!editing.value && !/^[A-Za-z0-9._-]+$/.test(form.code.trim())) {
+    return 'Kode: huruf, angka, titik, garis bawah/hubung saja';
+  }
+  return null;
+}
+
+async function save(): Promise<void> {
+  const v = validate();
+  if (v) {
+    modalError.value = v;
+    return;
+  }
+  saving.value = true;
+  modalError.value = null;
+  try {
+    if (editing.value) {
+      await api.patch(`/api/v1/funds/${editing.value.id}`, {
+        name: form.name.trim(),
+        fundType: form.fundType,
+        isRestricted: form.isRestricted,
+        description: form.description.trim() || null,
+        isActive: form.isActive,
+      });
+    } else {
+      await api.post('/api/v1/funds', {
+        code: form.code.trim(),
+        name: form.name.trim(),
+        fundType: form.fundType,
+        isRestricted: form.isRestricted,
+        description: form.description.trim() || null,
+      });
+    }
+    modalOpen.value = false;
+    await load();
+  } catch (err) {
+    modalError.value = formatApiError(err);
+  } finally {
+    saving.value = false;
+  }
+}
+
+function askArchive(f: Fund): void {
+  toArchive.value = f;
+  confirmOpen.value = true;
+}
+
+async function doArchive(): Promise<void> {
+  if (!toArchive.value) return;
+  archiving.value = true;
+  try {
+    await api.delete(`/api/v1/funds/${toArchive.value.id}`);
+    confirmOpen.value = false;
+    await load();
+  } catch (err) {
+    error.value = formatApiError(err);
+  } finally {
+    archiving.value = false;
+  }
+}
+
+onMounted(load);
+</script>
+
+<template>
+  <div class="space-y-4">
+    <PageHeader
+      title="Dana"
+      description="Dana PSAK 109/112 dan dana program/kampanye kustom (mis. Program Ambulans)."
+      :crumbs="[{ label: 'Dashboard', to: '/' }, { label: 'Keuangan' }, { label: 'Dana' }]"
+    >
+      <template #actions>
+        <Button size="sm" @click="openCreate">
+          <Plus class="h-4 w-4" /> Dana Baru
+        </Button>
+      </template>
+    </PageHeader>
+
+    <Alert v-if="error" variant="destructive">
+      <AlertDescription>{{ error }}</AlertDescription>
+    </Alert>
+
+    <Skeleton v-if="loading" class="h-64 w-full" />
+
+    <Card v-else>
+      <CardContent class="p-4">
+        <Table>
+          <TableHeader class="bg-muted/50">
+            <TableRow class="hover:bg-transparent">
+              <TableHead class="px-3 text-xs uppercase tracking-wide text-muted-foreground">Kode</TableHead>
+              <TableHead class="px-3 text-xs uppercase tracking-wide text-muted-foreground">Nama</TableHead>
+              <TableHead class="px-3 text-xs uppercase tracking-wide text-muted-foreground">Jenis</TableHead>
+              <TableHead class="px-3 text-center text-xs uppercase tracking-wide text-muted-foreground">Terikat</TableHead>
+              <TableHead class="px-3 text-xs uppercase tracking-wide text-muted-foreground">Status</TableHead>
+              <TableHead class="px-3 text-right text-xs uppercase tracking-wide text-muted-foreground">Aksi</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-if="!sortedItems.length">
+              <TableCell colspan="6" class="py-8 text-center text-sm text-muted-foreground">
+                Belum ada dana. Klik "Dana Baru" atau seed dana default PSAK 109 dulu.
+              </TableCell>
+            </TableRow>
+            <TableRow v-for="f in sortedItems" :key="f.id">
+              <TableCell class="px-3 py-2 font-mono text-xs text-foreground/80">{{ f.code }}</TableCell>
+              <TableCell class="px-3 py-2">
+                <p class="text-sm font-medium text-foreground">{{ f.name }}</p>
+                <p v-if="f.description" class="line-clamp-1 text-xs text-muted-foreground">{{ f.description }}</p>
+              </TableCell>
+              <TableCell class="px-3 py-2 text-sm text-muted-foreground">{{ FUND_TYPE_LABEL[f.fundType] }}</TableCell>
+              <TableCell class="px-3 py-2 text-center">
+                <span v-if="f.isRestricted" class="text-amber-600" title="Dana terikat syariah">●</span>
+                <span v-else class="text-muted-foreground/40">—</span>
+              </TableCell>
+              <TableCell class="px-3 py-2"><StatusBadge :status="f.isActive ? 'active' : 'inactive'" /></TableCell>
+              <TableCell class="px-3 py-2 text-right">
+                <div class="flex items-center justify-end gap-1">
+                  <Button variant="ghost" size="sm" title="Edit" @click="openEdit(f)">
+                    <Pencil class="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    v-if="!f.isSystem"
+                    variant="ghost"
+                    size="sm"
+                    title="Arsipkan"
+                    @click="askArchive(f)"
+                  >
+                    <Archive class="h-3.5 w-3.5 text-rose-600" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+
+    <Modal v-model:open="modalOpen" :title="editing ? 'Edit Dana' : 'Dana Baru'" size="lg">
+      <Alert v-if="modalError" variant="destructive" class="mb-3">
+        <AlertDescription>{{ modalError }}</AlertDescription>
+      </Alert>
+      <form class="space-y-3" @submit.prevent="save">
+        <FormField label="Nama dana" required hint="Mis. 'Program Ambulans', 'Peduli Aceh-Sumatra'">
+          <Input v-model="form.name" required minlength="2" placeholder="Program Ambulans" />
+        </FormField>
+        <FormField label="Kode" required :hint="editing ? 'Kode tidak bisa diubah' : 'Mis. PRG-AMBULANS'">
+          <Input v-model="form.code" :disabled="!!editing" required maxlength="20" placeholder="PRG-AMBULANS" />
+        </FormField>
+        <FormField label="Jenis dana (PSAK 109)" required hint="Program/kampanye biasanya masuk Infak/Sedekah">
+          <AppSelect v-model="form.fundType" :options="fundTypeOptions" />
+        </FormField>
+        <FormField label="Sifat">
+          <AppCheckbox v-model="form.isRestricted" label="Dana terikat (penggunaan dibatasi sesuai tujuan donasi)" />
+        </FormField>
+        <FormField label="Deskripsi" hint="Opsional">
+          <Textarea v-model="form.description" rows="2" placeholder="Konteks singkat dana ini" />
+        </FormField>
+        <FormField v-if="editing" label="Status">
+          <AppCheckbox v-model="form.isActive" label="Aktif (tampil di pilihan dana saat input transaksi)" />
+        </FormField>
+      </form>
+      <template #footer>
+        <Button variant="secondary" @click="modalOpen = false">Batal</Button>
+        <Button :loading="saving" @click="save">{{ editing ? 'Simpan' : 'Buat' }}</Button>
+      </template>
+    </Modal>
+
+    <ConfirmDialog
+      v-model:open="confirmOpen"
+      title="Arsipkan dana"
+      :message="`Dana '${toArchive?.name}' akan diarsipkan dan tidak tampil lagi di pilihan dana untuk transaksi baru. Riwayat transaksi & laporan tetap tersimpan.`"
+      :loading="archiving"
+      @confirm="doArchive"
+    />
+  </div>
+</template>

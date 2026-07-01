@@ -59,14 +59,34 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/features/transaction-categories/TransactionCategoriesView.vue'),
       },
       {
+        path: 'funds',
+        name: 'funds',
+        component: () => import('@/features/funds/FundsView.vue'),
+      },
+      {
         path: 'transactions',
         name: 'transactions',
         component: () => import('@/features/transactions/TransactionsView.vue'),
       },
       {
+        path: 'transactions/import',
+        name: 'transactions-import',
+        component: () => import('@/features/transactions/TransactionImportView.vue'),
+      },
+      {
         path: 'reports',
         name: 'reports',
         component: () => import('@/features/reports/ReportsView.vue'),
+      },
+      {
+        path: 'tenants',
+        name: 'tenants',
+        component: () => import('@/features/tenants/TenantsView.vue'),
+      },
+      {
+        path: 'changelog',
+        name: 'changelog',
+        component: () => import('@/features/changelog/ChangelogView.vue'),
       },
     ],
   },
