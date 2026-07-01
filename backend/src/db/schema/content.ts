@@ -90,6 +90,12 @@ export const events = pgTable(
     rsvpCapacity: integer(),
     status: eventStatusEnum().default('draft').notNull(),
     isPublic: boolean().default(true).notNull(),
+    seriesId: uuid(),
+    recurrenceType: varchar({ length: 20 }).default('none').notNull(),
+    intervalDays: integer(),
+    recurrenceWeekday: integer(),
+    recurrenceUntil: timestamp({ withTimezone: true }),
+    occurrenceIndex: integer().default(0).notNull(),
     createdBy: uuid()
       .notNull()
       .references(() => users.id),
@@ -100,6 +106,7 @@ export const events = pgTable(
   (t) => ({
     uniqueTenantSlug: unique().on(t.tenantId, t.slug),
     tenantStartIdx: index().on(t.tenantId, t.startsAt),
+    seriesIdx: index().on(t.seriesId),
   }),
 );
 

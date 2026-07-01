@@ -85,3 +85,29 @@ export async function ensureUserMapping(
     return created!;
   });
 }
+
+/**
+ * Resolve the acting tenant-scoped user for the current request.
+ *
+ * Regular user: pure lookup — no per-tenant `users` row means they were
+ * never invited/assigned to this tenant, full stop. We deliberately do NOT
+ * auto-create one here; that would silently grant tenant presence without
+ * an explicit invite, which is a real security boundary.
+ *
+ * super_admin: their permission bypass already lets them act in ANY tenant
+ * (see `requirePermission` — isSuperAdmin short-circuits every check), so a
+ * missing per-tenant `users` row is purely a provisioning gap (needed for
+ * audit FKs like `createdBy`), not a security boundary. Auto-provision it
+ * transparently so switching between institutions "just works" without a
+ * manual onboarding script each time.
+ */
+export async function resolveActingUser(
+  authUser: AuthUserSnapshot,
+  tenantId: string,
+  isSuperAdmin: boolean,
+): Promise<User | null> {
+  const existing = await findTenantUser(authUser.id, tenantId);
+  if (existing) return existing;
+  if (!isSuperAdmin) return null;
+  return ensureUserMapping(authUser, tenantId);
+}

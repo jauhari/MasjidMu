@@ -28,7 +28,15 @@ import { requireSession, type SessionVars } from '../../../middleware/session.js
 import { requireTenant, type TenantVars } from '../../../middleware/tenant.js';
 import { requirePermission, type PermissionVars } from '../../../middleware/permission.js';
 import { auditInterceptor } from '../../../lib/audit.js';
+import {
+  generateOccurrenceStarts,
+  groupEventsBySeries,
+  RECURRENCE_TYPES,
+  shiftEndsAt,
+  type RecurrenceType,
+} from '../../../lib/event-recurrence.js';
 import { pickFreeSlug, slugify } from '../../../lib/slug.js';
+import { resolveActingUser } from '../../../lib/user-mapping.js';
 
 const STATUS = ['draft', 'published', 'cancelled', 'completed'] as const;
 
@@ -45,11 +53,19 @@ const createSchema = z
     rsvpCapacity: z.number().int().min(1).nullable().optional(),
     status: z.enum(STATUS).default('draft'),
     isPublic: z.boolean().default(true),
+    recurrenceType: z.enum(RECURRENCE_TYPES).default('none'),
+    intervalDays: z.number().int().min(1).max(365).nullable().optional(),
+    recurrenceUntil: z.string().datetime().nullable().optional(),
+    recurrenceOpenEnded: z.boolean().default(false),
   })
   .refine((v) => !v.endsAt || new Date(v.endsAt) >= new Date(v.startsAt), {
     message: 'endsAt must be on or after startsAt',
     path: ['endsAt'],
-  });
+  })
+  .refine(
+    (v) => v.recurrenceType !== 'interval_days' || (v.intervalDays != null && v.intervalDays >= 1),
+    { message: 'intervalDays required for interval_days recurrence', path: ['intervalDays'] },
+  );
 
 const updateSchema = z.object({
   title: z.string().min(2).max(200).optional(),
@@ -71,6 +87,7 @@ const listQuerySchema = z.object({
   to: z.string().datetime().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
+  group: z.enum(['series', 'occurrences']).default('occurrences'),
 });
 
 const speakerSchema = z.object({
@@ -98,20 +115,38 @@ export const eventsRoute = new Hono<{
   .get('/', zValidator('query', listQuerySchema), async (c) => {
     const tenantId = c.get('tenantId')!;
     const q = c.req.valid('query');
-    const rows = await withTenant(tenantId, async (tx) => {
+    const result = await withTenant(tenantId, async (tx) => {
       const conds = [isNull(events.deletedAt)];
       if (q.status) conds.push(eq(events.status, q.status));
       if (q.from) conds.push(sql`${events.startsAt} >= ${new Date(q.from).toISOString()}::timestamptz`);
       if (q.to) conds.push(sql`${events.startsAt} <= ${new Date(q.to).toISOString()}::timestamptz`);
-      return tx
+
+      if (q.group === 'occurrences') {
+        const rows = await tx
+          .select()
+          .from(events)
+          .where(and(...conds))
+          .orderBy(desc(events.startsAt))
+          .limit(q.limit)
+          .offset(q.offset);
+        return { rows, total: null as number | null };
+      }
+
+      const all = await tx
         .select()
         .from(events)
         .where(and(...conds))
-        .orderBy(desc(events.startsAt))
-        .limit(q.limit)
-        .offset(q.offset);
+        .orderBy(desc(events.startsAt));
+      const grouped = groupEventsBySeries(all);
+      return {
+        rows: grouped.slice(q.offset, q.offset + q.limit),
+        total: grouped.length,
+      };
     });
-    return c.json({ data: rows, meta: { limit: q.limit, offset: q.offset } });
+    return c.json({
+      data: result.rows,
+      meta: { limit: q.limit, offset: q.offset, total: result.total, group: q.group },
+    });
   })
 
   .get('/:id', async (c) => {
@@ -140,36 +175,73 @@ export const eventsRoute = new Hono<{
 
   .post('/', requirePermission('events.manage'), zValidator('json', createSchema), async (c) => {
     const tenantId = c.get('tenantId')!;
-    const userId = c.get('user')!.id;
+    const authUser = c.get('user')!;
+    const tenantUser = await resolveActingUser(authUser, tenantId, !!c.get('isSuperAdmin'));
+    if (!tenantUser) return c.json({ error: 'tenant_user_missing' }, 422);
     const body = c.req.valid('json');
+    const anchorStart = new Date(body.startsAt);
+    const anchorEnd = body.endsAt ? new Date(body.endsAt) : null;
+    const recurrenceType = body.recurrenceType as RecurrenceType;
+    const openEnded = body.recurrenceOpenEnded && recurrenceType !== 'none';
+    const recurrenceUntil = openEnded
+      ? null
+      : body.recurrenceUntil
+        ? new Date(body.recurrenceUntil)
+        : null;
+    const occurrenceStarts = generateOccurrenceStarts({
+      type: recurrenceType,
+      startsAt: anchorStart,
+      intervalDays: body.intervalDays ?? undefined,
+      recurrenceUntil,
+      openEnded,
+    });
+
     const created = await withTenant(tenantId, async (tx) => {
       const base = slugify(body.slug ?? body.title);
-      const taken = await tx
+      const takenRows = await tx
         .select({ slug: events.slug })
         .from(events)
         .where(and(eq(events.tenantId, tenantId), like(events.slug, `${base}%`)));
-      const slug = pickFreeSlug(taken.map((t) => t.slug), base);
-      const [r] = await tx
-        .insert(events)
-        .values({
+      const taken = new Set(takenRows.map((t) => t.slug));
+      const seriesId = recurrenceType === 'none' ? null : crypto.randomUUID();
+      const recurrenceWeekday =
+        recurrenceType === 'weekly' ? anchorStart.getUTCDay() : null;
+
+      const rows = occurrenceStarts.map((start, index) => {
+        const slugSuffix =
+          index === 0 ? '' : `-${start.toISOString().slice(0, 10)}`;
+        const slug = pickFreeSlug(taken, `${base}${slugSuffix}`);
+        taken.add(slug);
+        return {
           tenantId,
           title: body.title,
           slug,
           description: body.description ?? null,
           coverUrl: body.coverUrl ?? null,
-          startsAt: new Date(body.startsAt),
-          endsAt: body.endsAt ? new Date(body.endsAt) : null,
+          startsAt: start,
+          endsAt: shiftEndsAt(start, anchorStart, anchorEnd),
           location: body.location ?? null,
           rsvpEnabled: body.rsvpEnabled,
           rsvpCapacity: body.rsvpCapacity ?? null,
           status: body.status,
           isPublic: body.isPublic,
-          createdBy: userId,
-        })
-        .returning();
-      return r!;
+          seriesId,
+          recurrenceType,
+          intervalDays: recurrenceType === 'interval_days' ? body.intervalDays ?? null : null,
+          recurrenceWeekday,
+          recurrenceUntil,
+          occurrenceIndex: index,
+          createdBy: tenantUser.id,
+        };
+      });
+
+      const inserted = await tx.insert(events).values(rows).returning();
+      return { primary: inserted[0]!, seriesCount: inserted.length };
     });
-    return c.json({ data: created }, 201);
+    return c.json(
+      { data: created.primary, meta: { seriesCount: created.seriesCount } },
+      201,
+    );
   })
 
   .patch('/:id', requirePermission('events.manage'), zValidator('json', updateSchema), async (c) => {
@@ -210,16 +282,34 @@ export const eventsRoute = new Hono<{
   .delete('/:id', requirePermission('events.manage'), async (c) => {
     const tenantId = c.get('tenantId')!;
     const id = c.req.param('id');
+    const scope = c.req.query('scope');
     const deleted = await withTenant(tenantId, async (tx) => {
+      const existing = await tx
+        .select({ id: events.id, seriesId: events.seriesId })
+        .from(events)
+        .where(and(eq(events.id, id), isNull(events.deletedAt)));
+      const row = existing[0];
+      if (!row) return null;
+
+      const now = new Date();
+      if (scope === 'series' && row.seriesId) {
+        const removed = await tx
+          .update(events)
+          .set({ deletedAt: now, updatedAt: now })
+          .where(and(eq(events.seriesId, row.seriesId), isNull(events.deletedAt)))
+          .returning({ id: events.id });
+        return { id: row.id, seriesDeleted: removed.length };
+      }
+
       const [r] = await tx
         .update(events)
-        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .set({ deletedAt: now, updatedAt: now })
         .where(and(eq(events.id, id), isNull(events.deletedAt)))
         .returning();
-      return r ?? null;
+      return r ? { id: r.id, seriesDeleted: 1 } : null;
     });
     if (!deleted) return c.json({ error: 'not_found' }, 404);
-    return c.json({ data: { id: deleted.id } });
+    return c.json({ data: deleted });
   })
 
   // ─── Speakers ───────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, isNull, like } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, like } from 'drizzle-orm';
 import { withTenant } from '../../../db/client.js';
 import { programs } from '../../../db/schema/content.js';
 import { requireSession, type SessionVars } from '../../../middleware/session.js';
@@ -59,15 +59,23 @@ export const programsRoute = new Hono<{
       const conds = [isNull(programs.deletedAt)];
       if (q.status) conds.push(eq(programs.status, q.status));
       if (q.isPublic !== undefined) conds.push(eq(programs.isPublic, q.isPublic));
-      return tx
-        .select()
-        .from(programs)
-        .where(and(...conds))
-        .orderBy(desc(programs.createdAt))
-        .limit(q.limit)
-        .offset(q.offset);
+      const where = and(...conds);
+      const [list, totalRow] = await Promise.all([
+        tx
+          .select()
+          .from(programs)
+          .where(where)
+          .orderBy(desc(programs.createdAt))
+          .limit(q.limit)
+          .offset(q.offset),
+        tx.select({ total: count() }).from(programs).where(where),
+      ]);
+      return { list, total: totalRow[0]?.total ?? 0 };
     });
-    return c.json({ data: rows, meta: { limit: q.limit, offset: q.offset } });
+    return c.json({
+      data: rows.list,
+      meta: { limit: q.limit, offset: q.offset, total: rows.total },
+    });
   })
 
   .get('/:id', async (c) => {
