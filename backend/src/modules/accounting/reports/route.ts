@@ -35,7 +35,12 @@ import {
   setCachedReport,
 } from './cache.js';
 import { InvalidPeriodError, parseComparePeriod, parsePeriod } from './period.js';
-import type { ExportFormat, ReportResponse, ReportType } from './types.js';
+import type {
+  ConsolidatedFundUsageData,
+  ExportFormat,
+  ReportResponse,
+  ReportType,
+} from './types.js';
 import { buildBalanceSheet } from './services/balance-sheet.js';
 import { buildActivity } from './services/activity.js';
 import { buildNetAssetsChange } from './services/net-assets-change.js';
@@ -43,6 +48,8 @@ import { buildCashFlow } from './services/cash-flow.js';
 import { buildGeneralLedger } from './services/general-ledger.js';
 import { buildTrialBalance } from './services/trial-balance.js';
 import { buildJurnalUmum } from './services/jurnal-umum.js';
+import { buildFundUsage } from './services/fund-usage.js';
+import { buildConsolidatedFundUsage } from './services/consolidation.js';
 import { renderReportPdf } from './export/pdf.js';
 import { renderReportXlsx } from './export/xlsx.js';
 
@@ -208,4 +215,57 @@ export const reportsRoute = new Hono<{
   .get('/jurnal-umum', async (c, next) => {
     const fmt = resolveFormat(c.req.query('format'));
     return requirePermission(permFor(fmt))(c, next);
-  }, async (c) => handle(c, { reportType: 'jurnal-umum', build: (r) => buildJurnalUmum(r) }));
+  }, async (c) => handle(c, { reportType: 'jurnal-umum', build: (r) => buildJurnalUmum(r) }))
+
+  .get('/sumber-penggunaan-dana', async (c, next) => {
+    const fmt = resolveFormat(c.req.query('format'));
+    return requirePermission(permFor(fmt))(c, next);
+  }, async (c) =>
+    handle(c, { reportType: 'sumber-penggunaan-dana', build: (r) => buildFundUsage(r) }),
+  )
+
+  // Konsolidasi multi-entitas: tenant dari sesi diperlakukan sebagai induk;
+  // service meresolusi cabangnya sendiri. Mendukung json/pdf/xlsx.
+  .get('/konsolidasi/sumber-penggunaan-dana', async (c, next) => {
+    const fmt = resolveFormat(c.req.query('format'));
+    return requirePermission(permFor(fmt))(c, next);
+  }, async (c) => {
+    const tenantId = c.get('tenantId') as string;
+    const q = parseQuery(c);
+    let period: ReturnType<typeof parsePeriod>;
+    try {
+      period = parsePeriod(q);
+    } catch (e) {
+      if (e instanceof InvalidPeriodError) {
+        return c.json({ error: 'invalid_period', detail: e.message }, 400);
+      }
+      throw e;
+    }
+    const data = await buildConsolidatedFundUsage({ parentTenantId: tenantId, period });
+    const response: ReportResponse<ConsolidatedFundUsageData> = {
+      reportType: 'konsolidasi-dana',
+      tenantId,
+      period,
+      generatedAt: new Date().toISOString(),
+      data,
+    };
+    if (q.format === 'pdf') {
+      const pdf = await renderReportPdf(response);
+      return c.body(pdf as unknown as ArrayBuffer, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `inline; filename="konsolidasi-dana-${period.label}.pdf"`,
+        },
+      });
+    }
+    if (q.format === 'xlsx') {
+      const xlsx = await renderReportXlsx(response);
+      return c.body(xlsx as unknown as ArrayBuffer, {
+        headers: {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="konsolidasi-dana-${period.label}.xlsx"`,
+        },
+      });
+    }
+    return c.json(response);
+  });

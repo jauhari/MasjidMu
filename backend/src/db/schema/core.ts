@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   boolean,
   index,
   pgEnum,
@@ -12,10 +13,22 @@ import {
 } from 'drizzle-orm/pg-core';
 export const userStatusEnum = pgEnum('user_status', ['active', 'inactive', 'invited']);
 
+// Jenis lembaga (edisi) — menentukan dana yang di-seed, istilah & branding.
+//   masjid    → DKM masjid/mushola (ISAK 35, dana umum saja)
+//   laz       → Lembaga Amil Zakat / BAZNAS (PSAK 109 — dana zakat dkk)
+//   pesantren → pondok pesantren (ISAK 35)
+//   yayasan   → yayasan/panti/NGO (ISAK 35)
+export const tenantEditionEnum = pgEnum('tenant_edition', [
+  'masjid',
+  'laz',
+  'pesantren',
+  'yayasan',
+]);
+
 // ─── Tenants ───────────────────────────────────────────────────────────────
 /**
  * Tenants = masjid (one tenant per mosque).
- * Identified by `slug` for subdomain routing: `{slug}.masjidmu.id`.
+ * Identified by `slug` for subdomain routing: `{slug}.hisabmu.id`.
  *
  * RLS NOT enabled here — needed for tenant resolution before context is set.
  */
@@ -24,6 +37,10 @@ export const tenants = pgTable('tenants', {
   slug: varchar({ length: 63 }).notNull().unique(),
   name: varchar({ length: 200 }).notNull(),
   shortName: varchar({ length: 100 }),
+  edition: tenantEditionEnum().default('masjid').notNull(),
+  // Konsolidasi multi-entitas: tenant induk (mis. LazisNu pusat / Baznas
+  // provinsi) yang memayungi cabang. NULL = entitas mandiri / pusat.
+  parentTenantId: uuid().references((): AnyPgColumn => tenants.id),
   isActive: boolean().default(true).notNull(),
   createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),

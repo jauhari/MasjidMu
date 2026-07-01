@@ -10,6 +10,8 @@ import type {
   ActivityData,
   BalanceSheetData,
   CashFlowData,
+  ConsolidatedFundUsageData,
+  FundUsageData,
   GeneralLedgerData,
   JurnalUmumData,
   NetAssetsChangeData,
@@ -179,6 +181,67 @@ function buildJurnalUmum(wb: ExcelJS.Workbook, r: ReportResponse<JurnalUmumData>
   autoFit(ws);
 }
 
+function buildFundUsage(wb: ExcelJS.Workbook, r: ReportResponse<FundUsageData>): void {
+  const ws = wb.addWorksheet('Sumber & Penggunaan Dana');
+  addHeader(ws, REPORT_TITLES_ID['sumber-penggunaan-dana'], r.period.label, r.generatedAt);
+  ws.addRow(['Dana', 'Saldo Awal', 'Penerimaan', 'Penyaluran', 'Surplus/(Defisit)', 'Saldo Akhir']).font =
+    { bold: true };
+  for (const f of r.data.funds) {
+    ws.addRow([
+      `${f.fundName}${f.isRestricted ? ' *' : ''}`,
+      num(f.openingBalance),
+      num(f.penerimaan),
+      num(f.penyaluran),
+      num(f.surplusDeficit),
+      num(f.closingBalance),
+    ]);
+  }
+  ws.addRow([
+    'Total',
+    num(r.data.totalOpening),
+    num(r.data.totalPenerimaan),
+    num(r.data.totalPenyaluran),
+    num(r.data.totalSurplusDeficit),
+    num(r.data.totalClosing),
+  ]).font = { bold: true };
+  applyNumberFormat(ws, [2, 3, 4, 5, 6]);
+  autoFit(ws);
+}
+
+function buildConsolidatedFundUsage(wb: ExcelJS.Workbook, r: ReportResponse<ConsolidatedFundUsageData>): void {
+  const d = r.data;
+  const ws = wb.addWorksheet('Konsolidasi Dana');
+  addHeader(ws, REPORT_TITLES_ID['konsolidasi-dana'], r.period.label, r.generatedAt);
+
+  ws.addRow([`${d.entityCount} entitas (induk + cabang)`]);
+  ws.addRow([]);
+  ws.addRow(['Ringkasan per Entitas']).font = { bold: true };
+  ws.addRow(['Entitas', 'Penerimaan', 'Penyaluran', 'Saldo Akhir']).font = { bold: true };
+  for (const e of d.entities) {
+    ws.addRow([e.tenantName, num(e.penerimaan), num(e.penyaluran), num(e.closingBalance)]);
+  }
+  applyNumberFormat(ws, [2, 3, 4]);
+
+  ws.addRow([]);
+  ws.addRow(['Konsolidasi per Jenis Dana']).font = { bold: true };
+  const head = ws.addRow(['Dana', 'Saldo Awal', 'Penerimaan', 'Penyaluran', 'Surplus/(Defisit)', 'Saldo Akhir']);
+  head.font = { bold: true };
+  for (const f of d.byFundType) {
+    ws.addRow([f.label, num(f.openingBalance), num(f.penerimaan), num(f.penyaluran), num(f.surplusDeficit), num(f.closingBalance)]);
+  }
+  ws.addRow([
+    'Total Konsolidasi',
+    num(d.totalOpening),
+    num(d.totalPenerimaan),
+    num(d.totalPenyaluran),
+    num(d.totalSurplusDeficit),
+    num(d.totalClosing),
+  ]).font = { bold: true };
+  // Format kolom angka pada blok jenis dana (kolom 2-6).
+  applyNumberFormat(ws, [2, 3, 4, 5, 6]);
+  autoFit(ws);
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function applyNumberFormat(ws: ExcelJS.Worksheet, cols: number[]): void {
@@ -202,7 +265,7 @@ function autoFit(ws: ExcelJS.Worksheet): void {
 
 export async function renderReportXlsx<T>(response: ReportResponse<T>): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'MasjidMu';
+  wb.creator = 'HisabMu';
   wb.created = new Date(response.generatedAt);
 
   switch (response.reportType) {
@@ -226,6 +289,12 @@ export async function renderReportXlsx<T>(response: ReportResponse<T>): Promise<
       break;
     case 'jurnal-umum':
       buildJurnalUmum(wb, response as unknown as ReportResponse<JurnalUmumData>);
+      break;
+    case 'sumber-penggunaan-dana':
+      buildFundUsage(wb, response as unknown as ReportResponse<FundUsageData>);
+      break;
+    case 'konsolidasi-dana':
+      buildConsolidatedFundUsage(wb, response as unknown as ReportResponse<ConsolidatedFundUsageData>);
       break;
   }
 

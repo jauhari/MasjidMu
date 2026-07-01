@@ -11,6 +11,8 @@ export const REPORT_TITLES_ID: Record<ReportType, string> = {
   'general-ledger': 'Buku Besar (General Ledger)',
   'trial-balance': 'Neraca Saldo (Trial Balance)',
   'jurnal-umum': 'Jurnal Umum',
+  'sumber-penggunaan-dana': 'Laporan Sumber & Penggunaan Dana',
+  'konsolidasi-dana': 'Laporan Konsolidasi Sumber & Penggunaan Dana',
 };
 
 /** Format `1234567.89` → `1.234.567,89` (Indonesian convention). */

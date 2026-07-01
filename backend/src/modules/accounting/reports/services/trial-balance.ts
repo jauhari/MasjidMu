@@ -47,9 +47,10 @@ export async function buildTrialBalance(args: {
     const lines = (r.rows as unknown as Row[]).map((row) => {
       const d = new Decimal(row.sum_debit);
       const c = new Decimal(row.sum_credit);
-      const net = row.normal_balance === 'debit' ? d.minus(c) : c.minus(d);
-      const debitCol = row.normal_balance === 'debit' && net.gt(0) ? net : new Decimal(0);
-      const creditCol = row.normal_balance === 'credit' && net.gt(0) ? net : new Decimal(0);
+      // Standard trial balance: net = debit − credit; positive → debit col, negative → credit col.
+      const net = d.minus(c);
+      const debitCol = net.gte(0) ? net : new Decimal(0);
+      const creditCol = net.lt(0) ? net.abs() : new Decimal(0);
       totalDebit = totalDebit.plus(debitCol);
       totalCredit = totalCredit.plus(creditCol);
       return {

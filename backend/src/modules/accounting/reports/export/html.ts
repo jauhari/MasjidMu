@@ -9,6 +9,8 @@ import type {
   ActivityData,
   BalanceSheetData,
   CashFlowData,
+  ConsolidatedFundUsageData,
+  FundUsageData,
   GeneralLedgerData,
   JurnalUmumData,
   NetAssetsChangeData,
@@ -43,7 +45,7 @@ function shell(reportType: ReportType, periodLabel: string, body: string, genera
   <h1>${escapeHtml(REPORT_TITLES_ID[reportType])}</h1>
   <div class="meta">Periode: ${escapeHtml(periodLabel)} · Dibuat: ${escapeHtml(new Date(generatedAt).toLocaleString('id-ID'))}</div>
   ${body}
-  <div class="footer">MasjidMu · Halaman 1</div>
+  <div class="footer">HisabMu · Halaman 1</div>
 </body></html>`;
 }
 
@@ -146,6 +148,101 @@ function renderJurnalUmum(d: JurnalUmumData): string {
 }
 
 // ─── Dispatcher ────────────────────────────────────────────────────────────
+function renderFundUsage(d: FundUsageData): string {
+  const row = (
+    label: string,
+    cls: string,
+    f: { fundName?: string; openingBalance: string; penerimaan: string; penyaluran: string; surplusDeficit: string; closingBalance: string },
+  ) => `<tr class="${cls}">
+      <td>${escapeHtml(label)}</td>
+      <td class="num">${formatIDR(f.openingBalance)}</td>
+      <td class="num">${formatIDR(f.penerimaan)}</td>
+      <td class="num">${formatIDR(f.penyaluran)}</td>
+      <td class="num">${formatIDR(f.surplusDeficit)}</td>
+      <td class="num">${formatIDR(f.closingBalance)}</td>
+    </tr>`;
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>Dana</th>
+          <th class="num">Saldo Awal</th>
+          <th class="num">Penerimaan</th>
+          <th class="num">Penyaluran</th>
+          <th class="num">Surplus/(Defisit)</th>
+          <th class="num">Saldo Akhir</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${d.funds
+          .map((f) =>
+            row(`${f.fundName}${f.isRestricted ? ' *' : ''}`, '', f),
+          )
+          .join('')}
+        ${row('Total', 'total', {
+          openingBalance: d.totalOpening,
+          penerimaan: d.totalPenerimaan,
+          penyaluran: d.totalPenyaluran,
+          surplusDeficit: d.totalSurplusDeficit,
+          closingBalance: d.totalClosing,
+        })}
+      </tbody>
+    </table>
+    <p class="meta">* dana terikat syariah (mis. zakat, wakaf) — penggunaan dibatasi.</p>`;
+}
+
+function renderConsolidatedFundUsage(d: ConsolidatedFundUsageData): string {
+  return `
+    <p class="meta">${d.entityCount} entitas (induk + cabang)</p>
+    <h2>Ringkasan per Entitas</h2>
+    <table>
+      <thead><tr>
+        <th>Entitas</th><th class="num">Penerimaan</th><th class="num">Penyaluran</th><th class="num">Saldo Akhir</th>
+      </tr></thead>
+      <tbody>
+        ${d.entities
+          .map(
+            (e) => `<tr>
+              <td>${escapeHtml(e.tenantName)}</td>
+              <td class="num">${formatIDR(e.penerimaan)}</td>
+              <td class="num">${formatIDR(e.penyaluran)}</td>
+              <td class="num">${formatIDR(e.closingBalance)}</td>
+            </tr>`,
+          )
+          .join('')}
+      </tbody>
+    </table>
+    <h2>Konsolidasi per Jenis Dana</h2>
+    <table>
+      <thead><tr>
+        <th>Dana</th><th class="num">Saldo Awal</th><th class="num">Penerimaan</th>
+        <th class="num">Penyaluran</th><th class="num">Surplus/(Defisit)</th><th class="num">Saldo Akhir</th>
+      </tr></thead>
+      <tbody>
+        ${d.byFundType
+          .map(
+            (f) => `<tr>
+              <td>${escapeHtml(f.label)}</td>
+              <td class="num">${formatIDR(f.openingBalance)}</td>
+              <td class="num">${formatIDR(f.penerimaan)}</td>
+              <td class="num">${formatIDR(f.penyaluran)}</td>
+              <td class="num">${formatIDR(f.surplusDeficit)}</td>
+              <td class="num">${formatIDR(f.closingBalance)}</td>
+            </tr>`,
+          )
+          .join('')}
+        <tr class="total">
+          <td>Total Konsolidasi</td>
+          <td class="num">${formatIDR(d.totalOpening)}</td>
+          <td class="num">${formatIDR(d.totalPenerimaan)}</td>
+          <td class="num">${formatIDR(d.totalPenyaluran)}</td>
+          <td class="num">${formatIDR(d.totalSurplusDeficit)}</td>
+          <td class="num">${formatIDR(d.totalClosing)}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
 export function renderReportHtml<T>(response: ReportResponse<T>): string {
   const hasCmp = !!response.comparePeriod;
   let body = '';
@@ -170,6 +267,12 @@ export function renderReportHtml<T>(response: ReportResponse<T>): string {
       break;
     case 'jurnal-umum':
       body = renderJurnalUmum(response.data as unknown as JurnalUmumData);
+      break;
+    case 'sumber-penggunaan-dana':
+      body = renderFundUsage(response.data as unknown as FundUsageData);
+      break;
+    case 'konsolidasi-dana':
+      body = renderConsolidatedFundUsage(response.data as unknown as ConsolidatedFundUsageData);
       break;
   }
   return shell(response.reportType, response.period.label, body, response.generatedAt);

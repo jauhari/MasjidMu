@@ -13,7 +13,9 @@ export type ReportType =
   | 'arus-kas'
   | 'general-ledger'
   | 'trial-balance'
-  | 'jurnal-umum';
+  | 'jurnal-umum'
+  | 'sumber-penggunaan-dana'
+  | 'konsolidasi-dana';
 
 export type ExportFormat = 'json' | 'pdf' | 'xlsx';
 
@@ -161,6 +163,64 @@ export interface TrialBalanceData {
   lines: TrialBalanceLine[];
   totalDebit: string;
   totalCredit: string;
+}
+
+// ─── Laporan Sumber & Penggunaan Dana (PSAK 109) ──────────────────────
+// Roll-forward saldo per dana:
+//   saldo akhir = saldo awal + (penerimaan − penyaluran)
+// Penerimaan = kredit ke akun pendapatan yang ditag dana tsb.
+// Penyaluran = debit ke akun beban yang ditag dana tsb.
+export interface FundUsageRow {
+  fundCode: string;
+  fundName: string;
+  fundType: string;
+  isRestricted: boolean;
+  openingBalance: string;
+  penerimaan: string;
+  penyaluran: string;
+  surplusDeficit: string;
+  closingBalance: string;
+}
+
+export interface FundUsageData {
+  funds: FundUsageRow[];
+  totalOpening: string;
+  totalPenerimaan: string;
+  totalPenyaluran: string;
+  totalSurplusDeficit: string;
+  totalClosing: string;
+}
+
+// ─── Konsolidasi Multi-Entitas — Sumber & Penggunaan Dana (PSAK 109) ───
+// Agregasi lintas {induk + cabang}. Dikelompokkan per JENIS dana (fund_type)
+// karena tiap entitas punya baris dana sendiri-sendiri.
+export interface ConsolidatedFundRow {
+  fundType: string;
+  label: string;
+  openingBalance: string;
+  penerimaan: string;
+  penyaluran: string;
+  surplusDeficit: string;
+  closingBalance: string;
+}
+
+export interface ConsolidatedEntityRow {
+  tenantId: string;
+  tenantName: string;
+  penerimaan: string;
+  penyaluran: string;
+  closingBalance: string;
+}
+
+export interface ConsolidatedFundUsageData {
+  entityCount: number;
+  entities: ConsolidatedEntityRow[];
+  byFundType: ConsolidatedFundRow[];
+  totalOpening: string;
+  totalPenerimaan: string;
+  totalPenyaluran: string;
+  totalSurplusDeficit: string;
+  totalClosing: string;
 }
 
 // ─── Jurnal Umum ──────────────────────────────────────────────────────
