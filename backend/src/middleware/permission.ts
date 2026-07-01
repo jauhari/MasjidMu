@@ -12,7 +12,9 @@ import type { MiddlewareHandler } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { asSuperAdmin } from '../db/client.js';
 import { permissions, rolePermissions, roles, userRoles, users } from '../db/schema/core.js';
+import { memGet, memSet, memDel } from '../lib/memory-cache.js';
 import { redis } from '../lib/redis.js';
+import { env } from '../lib/env.js';
 import type { SessionVars } from './session.js';
 import type { TenantVars } from './tenant.js';
 
@@ -22,6 +24,7 @@ export type PermissionVars = {
 };
 
 const CACHE_TTL_SEC = 5 * 60;
+const isDev = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
 
 async function loadPermissions(authUserId: string, tenantId: string): Promise<string[]> {
   return asSuperAdmin(async (tx) => {
@@ -51,43 +54,84 @@ async function loadAndCachePermissions(
   tenantId: string,
 ): Promise<Set<string>> {
   const key = `perms:${tenantId}:${authUserId}`;
-  const cached = await redis.smembers(key);
-  if (cached.length > 0) {
-    return new Set(cached);
+
+  if (isDev) {
+    const cached = memGet<string[] | '__empty__'>(key);
+    if (cached === '__empty__') return new Set();
+    if (Array.isArray(cached) && cached.length > 0) return new Set(cached);
+  } else {
+    try {
+      const cached = await redis.smembers(key);
+      if (cached.length > 0) return new Set(cached);
+    } catch {
+      throw new Error('permission_cache_unavailable');
+    }
   }
 
   const perms = await loadPermissions(authUserId, tenantId);
-  if (perms.length > 0) {
-    await redis.sadd(key, perms[0]!, ...perms.slice(1));
-    await redis.expire(key, CACHE_TTL_SEC);
-  } else {
-    // Cache the empty result briefly so we don't hammer the DB on auth-failed users.
-    await redis.set(key, '', { ex: 30 });
+
+  if (isDev) {
+    if (perms.length > 0) memSet(key, perms, CACHE_TTL_SEC);
+    else memSet(key, '__empty__', 30);
+    return new Set(perms);
   }
+
+  try {
+    if (perms.length > 0) {
+      await redis.sadd(key, perms[0]!, ...perms.slice(1));
+      await redis.expire(key, CACHE_TTL_SEC);
+    } else {
+      await redis.set(key, '', { ex: 30 });
+    }
+  } catch {
+    throw new Error('permission_cache_unavailable');
+  }
+
   return new Set(perms);
 }
 
+const superAdminCacheKey = (authUserId: string) => `superadmin:${authUserId}`;
+
 /** Check whether the current user has 'super_admin' role (tenant-agnostic). */
 async function isSuperAdminForUser(authUserId: string): Promise<boolean> {
-  return asSuperAdmin(async (tx) => {
-    // Super admin role has tenant_id NULL, code 'super_admin'.
-    // We need to find ANY users row for this auth user (any tenant) that
-    // has the super_admin system role granted. For MVP, super_admin lives
-    // on a separate `auth.user.role = 'admin'` (better-auth admin plugin).
-    // We can also check our own user_roles table.
-    const u = await tx.select().from(users).where(eq(users.authUserId, authUserId));
-    if (u.length === 0) return false;
+  const key = superAdminCacheKey(authUserId);
 
-    for (const row of u) {
-      const r = await tx
-        .select()
-        .from(userRoles)
-        .innerJoin(roles, eq(userRoles.roleId, roles.id))
-        .where(and(eq(userRoles.userId, row.id), eq(roles.code, 'super_admin')));
-      if (r.length > 0) return true;
+  if (isDev) {
+    const cached = memGet<string>(key);
+    if (cached === '1') return true;
+    if (cached === '0') return false;
+  } else {
+    try {
+      const cached = await redis.get(key);
+      if (cached === '1') return true;
+      if (cached === '0') return false;
+    } catch {
+      throw new Error('permission_cache_unavailable');
     }
-    return false;
+  }
+
+  const isAdmin = await asSuperAdmin(async (tx) => {
+    const r = await tx
+      .select({ id: users.id })
+      .from(users)
+      .innerJoin(userRoles, eq(userRoles.userId, users.id))
+      .innerJoin(roles, eq(userRoles.roleId, roles.id))
+      .where(and(eq(users.authUserId, authUserId), eq(roles.code, 'super_admin')))
+      .limit(1);
+    return r.length > 0;
   });
+
+  if (isDev) {
+    memSet(key, isAdmin ? '1' : '0', CACHE_TTL_SEC);
+  } else {
+    try {
+      await redis.set(key, isAdmin ? '1' : '0', { ex: CACHE_TTL_SEC });
+    } catch {
+      throw new Error('permission_cache_unavailable');
+    }
+  }
+
+  return isAdmin;
 }
 
 /**
@@ -142,5 +186,10 @@ export async function invalidatePermissionCache(
   authUserId: string,
   tenantId: string,
 ): Promise<void> {
-  await redis.del(`perms:${tenantId}:${authUserId}`);
+  const key = `perms:${tenantId}:${authUserId}`;
+  if (isDev) {
+    memDel(key);
+    return;
+  }
+  await redis.del(key);
 }

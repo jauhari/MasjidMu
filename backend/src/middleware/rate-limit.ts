@@ -67,6 +67,9 @@ export const rateLimit = (
   kind: LimiterKind,
 ): MiddlewareHandler<{ Variables: SessionVars & TenantVars }> =>
   async (c, next) => {
+    // Local dev: skip Upstash — each call can add seconds of latency.
+    if (isDev) return next();
+
     let key: string;
     switch (kind) {
       case 'login':
@@ -80,16 +83,21 @@ export const rateLimit = (
         break;
     }
 
-    const { success, limit, remaining, reset } = await limiters[kind].limit(key);
+    try {
+      const { success, limit, remaining, reset } = await limiters[kind].limit(key);
 
-    c.header('X-RateLimit-Limit', String(limit));
-    c.header('X-RateLimit-Remaining', String(remaining));
-    c.header('X-RateLimit-Reset', String(reset));
+      c.header('X-RateLimit-Limit', String(limit));
+      c.header('X-RateLimit-Remaining', String(remaining));
+      c.header('X-RateLimit-Reset', String(reset));
 
-    if (!success) {
-      const retryAfter = Math.max(1, Math.ceil((reset - Date.now()) / 1000));
-      c.header('Retry-After', String(retryAfter));
-      return c.json({ error: 'rate_limited', retryAfter }, 429);
+      if (!success) {
+        const retryAfter = Math.max(1, Math.ceil((reset - Date.now()) / 1000));
+        c.header('Retry-After', String(retryAfter));
+        return c.json({ error: 'rate_limited', retryAfter }, 429);
+      }
+    } catch {
+      // Upstash may be unreachable in local dev — don't block auth/API.
+      if (!isDev) throw new Error('rate_limit_backend_unavailable');
     }
 
     return next();
