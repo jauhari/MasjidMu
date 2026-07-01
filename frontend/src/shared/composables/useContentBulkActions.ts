@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import { api } from '@/shared/api/client';
 import { bulkErrorMessage, runBulk } from '@/shared/lib/bulk-actions';
+import { toast } from '@/shared/lib/toast';
 import { useBulkSelection } from './useBulkSelection';
 
 type Item = { id: string };
@@ -22,6 +23,9 @@ export function useContentBulkActions(
     bulk.clearSelection();
     await reload();
     bulk.bulkError.value = bulkErrorMessage(result, itemLabel);
+    if (result.failed === 0) {
+      toast.success(`${result.total} ${itemLabel} berhasil diperbarui`);
+    }
     bulk.bulkActing.value = false;
   }
 
@@ -39,6 +43,9 @@ export function useContentBulkActions(
     bulk.clearSelection();
     await reload();
     bulk.bulkError.value = bulkErrorMessage(result, itemLabel);
+    if (result.failed === 0) {
+      toast.success(`${result.total} ${itemLabel} berhasil dihapus`);
+    }
     bulk.bulkActing.value = false;
   }
 
