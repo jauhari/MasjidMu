@@ -15,9 +15,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'robots.txt'],
       manifest: {
-        name: 'MasjidMu',
-        short_name: 'MasjidMu',
-        description: 'Platform manajemen masjid Indonesia',
+        name: 'HisabMu',
+        short_name: 'HisabMu',
+        description: 'Platform akuntansi & transparansi lembaga umat',
         theme_color: '#0d9488',
         background_color: '#ffffff',
         display: 'standalone',
@@ -30,17 +30,12 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
         navigateFallback: '/index.html',
-        runtimeCaching: [
-          {
-            urlPattern: /^https?:\/\/[^/]+\/api\/v1\/.*$/,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-v1',
-              networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 60, maxAgeSeconds: 60 * 5 },
-            },
-          },
-        ],
+        // Tanpa ini, SW lama bisa terus menyajikan build basi dari cache
+        // walau dev server sudah mati / origin dipakai ulang oleh project
+        // lain — SW baru wajib langsung ambil alih & buang cache lama.
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
       },
     }),
   ],
@@ -54,7 +49,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: process.env.VITE_API_TARGET ?? 'http://localhost:3000',
+        target: process.env.VITE_API_TARGET ?? 'http://localhost:3001',
         changeOrigin: false,
         secure: false,
       },

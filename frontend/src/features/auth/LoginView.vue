@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import FormField from '@/shared/ui/FormField.vue';
+import Button from '@/shared/ui/Button.vue';
 import { useAuthStore } from './store';
 
 const router = useRouter();
@@ -9,7 +14,7 @@ const auth = useAuthStore();
 const form = reactive({
   email: '',
   password: '',
-  tenantSlug: 'admin',
+  tenantSlug: 'al-uula',
 });
 const submitting = ref(false);
 const error = ref<string | null>(null);
@@ -34,62 +39,59 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <div class="min-h-full grid place-items-center bg-slate-50 px-4 py-12">
-    <form
-      class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-      @submit.prevent="onSubmit"
-    >
-      <div class="mb-6 flex items-center gap-3">
-        <div class="grid h-10 w-10 place-items-center rounded-xl bg-brand-600 text-white font-bold">M</div>
-        <div>
-          <h1 class="text-base font-semibold">MasjidMu</h1>
-          <p class="text-xs text-slate-500">Masuk ke dashboard pengurus</p>
+  <div class="min-h-full grid place-items-center bg-muted/40 px-4 py-12">
+    <Card class="w-full max-w-sm shadow-md">
+      <CardHeader class="flex flex-row items-center gap-3 space-y-0 pb-4">
+        <div class="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground font-bold">
+          H
         </div>
-      </div>
+        <div>
+          <CardTitle class="text-base">HisabMu</CardTitle>
+          <CardDescription>Akuntansi & transparansi lembaga umat</CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <form class="flex flex-col gap-4" @submit.prevent="onSubmit">
+          <FormField label="Slug masjid" html-for="tenantSlug" required>
+            <Input
+              id="tenantSlug"
+              v-model="form.tenantSlug"
+              required
+              autocomplete="organization"
+              placeholder="al-uula"
+            />
+          </FormField>
 
-      <label class="block text-sm font-medium text-slate-700" for="tenantSlug">Slug masjid</label>
-      <input
-        id="tenantSlug"
-        v-model="form.tenantSlug"
-        type="text"
-        required
-        autocomplete="organization"
-        class="mt-1 mb-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
-        placeholder="admin"
-      />
+          <FormField label="Email" html-for="email" required>
+            <Input
+              id="email"
+              v-model="form.email"
+              type="email"
+              required
+              autocomplete="email"
+              placeholder="admin@hisabmu.id"
+            />
+          </FormField>
 
-      <label class="block text-sm font-medium text-slate-700" for="email">Email</label>
-      <input
-        id="email"
-        v-model="form.email"
-        type="email"
-        required
-        autocomplete="email"
-        class="mt-1 mb-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
-        placeholder="admin@masjidmu.id"
-      />
+          <FormField label="Kata sandi" html-for="password" required>
+            <Input
+              id="password"
+              v-model="form.password"
+              type="password"
+              required
+              autocomplete="current-password"
+            />
+          </FormField>
 
-      <label class="block text-sm font-medium text-slate-700" for="password">Kata sandi</label>
-      <input
-        id="password"
-        v-model="form.password"
-        type="password"
-        required
-        autocomplete="current-password"
-        class="mt-1 mb-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
-      />
+          <Alert v-if="error" variant="destructive">
+            <AlertDescription>{{ error }}</AlertDescription>
+          </Alert>
 
-      <p v-if="error" class="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-        {{ error }}
-      </p>
-
-      <button
-        type="submit"
-        :disabled="submitting"
-        class="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
-      >
-        {{ submitting ? 'Memproses…' : 'Masuk' }}
-      </button>
-    </form>
+          <Button type="submit" class="w-full" :loading="submitting">
+            {{ submitting ? 'Memproses…' : 'Masuk' }}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   </div>
 </template>

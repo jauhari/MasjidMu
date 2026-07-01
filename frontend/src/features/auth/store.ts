@@ -11,7 +11,7 @@
  */
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import { api, getTenantSlug, setTenantSlug } from '@/shared/api/client';
+import { api, clearApiGetCache, getTenantSlug, setTenantSlug } from '@/shared/api/client';
 
 interface AuthUser {
   id: string;
@@ -81,6 +81,21 @@ export const useAuthStore = defineStore('auth', () => {
     await fetchMe();
   }
 
+  /**
+   * GOD mode: switch acting tenant without signing out. Only meaningful for
+   * super_admin — regular users only ever have one tenant slug (set at
+   * login) and have no reason to call this. Caller is responsible for
+   * reloading the page afterwards so every per-page cached ref starts fresh
+   * for the new tenant (simplest correct option — this is a rare admin
+   * action, not worth a reactive cross-store cache-invalidation system).
+   */
+  async function switchTenant(slug: string): Promise<void> {
+    setTenantSlug(slug);
+    tenantSlug.value = slug;
+    clearApiGetCache();
+    await fetchMe();
+  }
+
   async function signOut(): Promise<void> {
     try {
       await api.post('/api/auth/sign-out');
@@ -103,6 +118,7 @@ export const useAuthStore = defineStore('auth', () => {
     hasPermission,
     init,
     signIn,
+    switchTenant,
     signOut,
   };
 });
