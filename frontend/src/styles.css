@@ -1,4 +1,17 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+/* ---break---
+ */
+
 @import "tailwindcss";
+
+@import "tw-animate-css";
+
+/* ---break---
+ */
+
+@custom-variant dark (&:is(.dark *));
 
 @theme {
   --color-brand-50: #f0fdfa;
@@ -6,9 +19,443 @@
   --color-brand-500: #14b8a6;
   --color-brand-600: #0d9488;
   --color-brand-700: #0f766e;
-  --font-sans: "Inter", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Helvetica Neue", Arial, sans-serif;
 }
 
 html, body, #app {
   height: 100%;
+}
+
+/* ─── Vue Datepicker (shared by DatePicker + DateTimePicker) ──────────────
+ * Vue Datepicker pakai prefix `.dp--` (hyphen ganda), bukan `.dp__`.
+ * Theme variables di-bake di `.dp--theme-light` (nempel di popup `.dp--menu`).
+ * Override-nya harus di selector itu biar specificity menang dari default.
+ */
+.dp--theme-light {
+  --dp-background-color: #ffffff;
+  --dp-text-color: rgb(15 23 42);                       /* slate-900 */
+  --dp-hover-color: rgb(240 253 250);                   /* brand-50 */
+  --dp-hover-text-color: rgb(15 118 110);               /* brand-700 */
+  --dp-hover-icon-color: rgb(13 148 136);
+  --dp-primary-color: rgb(13 148 136);                  /* brand-600 */
+  --dp-primary-disabled-color: rgb(94 234 212);
+  --dp-primary-text-color: #ffffff;
+  --dp-secondary-color: rgb(100 116 139);
+  --dp-border-color: rgb(203 213 225);                  /* slate-300 */
+  --dp-menu-border-color: rgb(226 232 240);             /* slate-200 */
+  --dp-border-color-hover: rgb(13 148 136);
+  --dp-border-color-focus: rgb(13 148 136);
+  --dp-disabled-color: rgb(241 245 249);
+  --dp-scroll-bar-background: rgb(241 245 249);
+  --dp-scroll-bar-color: rgb(148 163 184);
+  --dp-success-color: rgb(13 148 136);
+  --dp-success-color-disabled: rgb(94 234 212);
+  --dp-icon-color: rgb(100 116 139);                    /* slate-500 */
+  --dp-danger-color: rgb(220 38 38);
+  --dp-marker-color: rgb(13 148 136);
+  --dp-tooltip-color: rgb(241 245 249);
+  --dp-disabled-color-text: rgb(148 163 184);
+  --dp-highlight-color: rgb(204 251 241 / 0.6);
+  --dp-range-between-dates-background-color: rgb(204 251 241);
+  --dp-range-between-dates-text-color: rgb(15 118 110);
+  --dp-range-between-border-color: rgb(204 251 241);
+}
+
+.masjidmu-dp {
+  --dp-font-family: inherit;
+  --dp-border-radius: 0.5rem;
+  --dp-cell-border-radius: 0.5rem;
+  --dp-input-padding: 0.5rem 0.75rem 0.5rem 2.25rem;
+  --dp-font-size: 0.875rem;
+  --dp-menu-padding: 0.75rem;
+  --dp-input-icon-padding: 2.25rem;
+}
+
+/* Input field */
+.masjidmu-dp .dp--input {
+  border-color: rgb(203 213 225);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem 0.5rem 2.25rem;
+  color: rgb(15 23 42);
+}
+.masjidmu-dp .dp--input::placeholder {
+  color: rgb(148 163 184);
+}
+.masjidmu-dp .dp--input:hover {
+  border-color: rgb(148 163 184);
+}
+.masjidmu-dp .dp--input.dp--input-focus,
+.masjidmu-dp .dp--input:focus {
+  border-color: rgb(13 148 136);
+  box-shadow: 0 0 0 3px rgb(204 251 241);
+}
+.masjidmu-dp .dp--input-icons,
+.masjidmu-dp .dp--input-icon {
+  color: rgb(100 116 139);
+}
+.masjidmu-dp .dp--clear-btn {
+  color: rgb(148 163 184);
+}
+.masjidmu-dp .dp--clear-btn:hover {
+  color: rgb(71 85 105);
+}
+
+/* Popup menu */
+.dp--menu.dp--theme-light,
+.dp--theme-light.dp--menu {
+  border: 1px solid rgb(226 232 240);
+  border-radius: 0.75rem;
+  box-shadow:
+    0 10px 30px -10px rgb(15 23 42 / 0.15),
+    0 4px 12px -4px rgb(15 23 42 / 0.08);
+  font-family: inherit;
+  padding: 0.5rem;
+}
+
+/* Header */
+.dp--theme-light .dp--month-year-wrap {
+  gap: 0.25rem;
+}
+.dp--theme-light .dp--month-year-select {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: rgb(15 23 42);
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.dp--theme-light .dp--month-year-select:hover {
+  background-color: rgb(241 245 249);
+  color: rgb(13 148 136);
+}
+.dp--theme-light .dp--inner-nav {
+  border-radius: 0.5rem;
+  color: rgb(71 85 105);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.dp--theme-light .dp--inner-nav:hover {
+  background-color: rgb(240 253 250);
+  color: rgb(13 148 136);
+}
+
+/* Weekday header row */
+.dp--theme-light .dp--calendar-header-item {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgb(100 116 139);
+}
+.dp--theme-light .dp--calendar-header-separator {
+  background-color: rgb(226 232 240);
+}
+
+/* Date cells */
+.dp--theme-light .dp--cell-inner {
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.dp--theme-light .dp--cell-offset {
+  color: rgb(148 163 184);
+}
+.dp--theme-light .dp--cell-inner:hover {
+  background-color: rgb(240 253 250);
+  color: rgb(15 118 110);
+}
+/* Today (outlined) */
+.dp--theme-light .dp--today {
+  border: 1px solid rgb(13 148 136);
+  color: rgb(15 118 110);
+  font-weight: 600;
+}
+/* Selected date — solid teal (high specificity beats default) */
+.dp--theme-light .dp--cell-inner.dp--active,
+.dp--theme-light .dp--active {
+  background-color: rgb(13 148 136);
+  color: #ffffff;
+  border-color: rgb(13 148 136);
+  font-weight: 600;
+}
+.dp--theme-light .dp--cell-inner.dp--active:hover {
+  background-color: rgb(15 118 110);
+  color: #ffffff;
+}
+/* Range markers */
+.dp--theme-light .dp--range-between,
+.dp--theme-light .dp--range-border-start,
+.dp--theme-light .dp--range-border-end {
+  background-color: rgb(204 251 241);
+  color: rgb(15 118 110);
+}
+
+/* Time picker */
+.dp--theme-light .dp--time-input {
+  font-variant-numeric: tabular-nums;
+  gap: 0.15rem;
+}
+
+/* Time picker inline mode — sits below/alongside calendar, no extra click */
+.dp--theme-light .dp--time-picker-inline-container {
+  max-width: 360px;
+  margin: 0 auto;
+  border-top: 1px solid rgb(226 232 240);
+  padding-top: 0.75rem;
+}
+
+/* Each time column (hours, minutes) */
+.dp--theme-light .dp--time-col {
+  background: rgb(248 250 252);                       /* slate-50 */
+  border-radius: 0.75rem;
+  padding: 0.375rem 0.25rem;
+  min-width: 4.5rem;
+  flex: 1;
+}
+/* Colon separator between hour/minute columns — pure CSS */
+.dp--theme-light .dp--time-col + .dp--time-col::before {
+  content: ":";
+  position: absolute;
+  left: -0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: rgb(148 163 184);                             /* slate-400 */
+  pointer-events: none;
+}
+.dp--theme-light .dp--time-col {
+  position: relative;
+}
+.dp--theme-light .dp--time-col-block {
+  border-radius: 0.5rem;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  font-size: 0.9rem;
+  padding: 0.2rem 0.4rem;
+}
+.dp--theme-light .dp--time-col-block:hover {
+  background-color: rgb(240 253 250);
+  color: rgb(15 118 110);
+}
+.dp--theme-light .dp--time-col-block.dp--active,
+.dp--theme-light .dp--time-col-block.dp--overlay-cell-active {
+  background-color: rgb(13 148 136);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 2px 8px -2px rgb(13 148 136 / 0.4);
+}
+/* First time column (hours) — extra right padding for visual balance */
+.dp--theme-light .dp--time-col:first-child {
+  padding-left: 0.5rem;
+}
+/* Increment/decrement buttons — circular */
+.dp--theme-light .dp--inc-dec-button {
+  border-radius: 9999px;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(100 116 139);
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  margin: 0 auto;
+}
+.dp--theme-light .dp--inc-dec-button:hover {
+  background-color: rgb(240 253 250);
+  color: rgb(13 148 136);
+  box-shadow: 0 2px 8px -2px rgb(13 148 136 / 0.3);
+}
+.dp--theme-light .dp--inc-dec-button:active {
+  background-color: rgb(204 251 241);
+  transform: scale(0.92);
+}
+.dp--theme-light .dp--inc-dec-button svg {
+  width: 14px;
+  height: 14px;
+}
+/* Time display (the number readout) */
+.dp--theme-light .dp--time-display {
+  background: #ffffff;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  font-size: 1.125rem;
+  padding: 0.3rem 0.6rem;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  border: 1px solid rgb(226 232 240);
+  margin: 0.25rem 0;
+  min-height: 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dp--theme-light .dp--time-display:hover {
+  background-color: rgb(240 253 250);
+  color: rgb(13 148 136);
+  border-color: rgb(13 148 136);
+  box-shadow: 0 0 0 3px rgb(204 251 241);
+}
+.dp--theme-light .dp--tp-wrap {
+  padding: 0.5rem 0 0.25rem;
+}
+
+/* Action buttons */
+.dp--theme-light .dp--action-row {
+  padding-top: 0.5rem;
+}
+.dp--theme-light .dp--action-buttons {
+  gap: 0.5rem;
+}
+.dp--theme-light .dp--action-button {
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 0.375rem 0.75rem;
+}
+.dp--theme-light .dp--action-cancel {
+  color: rgb(71 85 105);
+}
+.dp--theme-light .dp--action-cancel:hover {
+  background-color: rgb(241 245 249);
+}
+.dp--theme-light .dp--action-select {
+  background-color: rgb(13 148 136);
+  color: #ffffff;
+}
+.dp--theme-light .dp--action-select:hover {
+  background-color: rgb(15 118 110);
+}
+
+/* Selection arrow notch */
+.dp--theme-light .dp--arrow-top,
+.dp--theme-light .dp--arrow-bottom {
+  border-color: rgb(226 232 240);
+}
+/* ---break---
+ */
+@theme inline {
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+/* ---break---
+ */
+:root {
+  --radius: 0.5rem;
+  --background: oklch(0.985 0.003 240);
+  --foreground: oklch(0.22 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.02 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.02 260);
+  --primary: oklch(0.596 0.145 163.225);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.96 0.006 240);
+  --secondary-foreground: oklch(0.28 0.02 260);
+  --muted: oklch(0.96 0.006 240);
+  --muted-foreground: oklch(0.48 0.02 260);
+  --accent: oklch(0.94 0.03 163);
+  --accent-foreground: oklch(0.35 0.08 163);
+  --destructive: oklch(0.55 0.22 25);
+  --border: oklch(0.9 0.008 240);
+  --input: oklch(0.9 0.008 240);
+  --ring: oklch(0.596 0.145 163.225);
+  --chart-1: oklch(0.596 0.145 163.225);
+  --chart-2: oklch(0.65 0.15 145);
+  --chart-3: oklch(0.55 0.12 200);
+  --chart-4: oklch(0.72 0.14 85);
+  --chart-5: oklch(0.58 0.18 25);
+  --sidebar: oklch(0.16 0.02 260);
+  --sidebar-foreground: oklch(0.92 0.01 260);
+  --sidebar-primary: oklch(0.596 0.145 163.225);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.22 0.025 260);
+  --sidebar-accent-foreground: oklch(0.95 0.01 260);
+  --sidebar-border: oklch(0.28 0.02 260);
+  --sidebar-ring: oklch(0.596 0.145 163.225);
+}
+/* ---break---
+ */
+.dark {
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.92 0.004 286.32);
+  --primary-foreground: oklch(0.21 0.006 285.885);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.552 0.016 285.938);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.552 0.016 285.938);
+}
+/* ---break---
+ */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
 }

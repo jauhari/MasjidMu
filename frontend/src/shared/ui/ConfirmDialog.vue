@@ -1,13 +1,17 @@
 <script setup lang="ts">
-/**
- * ConfirmDialog — destructive action confirmation.
- *
- * Caller passes `open`, `title`, `message`. Emits `confirm` / `cancel`.
- */
-import Modal from './Modal.vue';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import Button from './Button.vue';
 
-const props = defineProps<{
+defineProps<{
   open: boolean;
   title?: string;
   message: string;
@@ -20,22 +24,27 @@ const emit = defineEmits<{
   confirm: [];
 }>();
 
-function close(): void {
-  emit('update:open', false);
-}
-function confirm(): void {
-  emit('confirm');
+function onOpenChange(v: boolean): void {
+  emit('update:open', v);
 }
 </script>
 
 <template>
-  <Modal :open="open" :title="title ?? 'Konfirmasi'" size="sm" @update:open="emit('update:open', $event)">
-    <p class="text-sm text-slate-700">{{ message }}</p>
-    <template #footer>
-      <Button variant="secondary" :disabled="loading" @click="close">Batal</Button>
-      <Button variant="danger" :loading="loading" @click="confirm">
-        {{ confirmLabel ?? 'Hapus' }}
-      </Button>
-    </template>
-  </Modal>
+  <AlertDialog :open="open" @update:open="onOpenChange">
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>{{ title ?? 'Konfirmasi' }}</AlertDialogTitle>
+        <AlertDialogDescription>{{ message }}</AlertDialogDescription>
+        <slot />
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel :disabled="loading">Batal</AlertDialogCancel>
+        <AlertDialogAction as-child>
+          <Button variant="danger" :loading="loading" @click="emit('confirm')">
+            {{ confirmLabel ?? 'Hapus' }}
+          </Button>
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
 </template>

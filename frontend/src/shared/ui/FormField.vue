@@ -1,27 +1,25 @@
 <script setup lang="ts">
-/**
- * FormField — label + slot for input + optional error message.
- *
- * Usage:
- *   <FormField label="Nama" :error="errors.name">
- *     <input v-model="form.name" class="..." />
- *   </FormField>
- */
+import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
+
 defineProps<{
   label: string;
+  htmlFor?: string;
   required?: boolean;
   error?: string | null;
   hint?: string | null;
+  class?: string;
 }>();
 </script>
 
 <template>
-  <div>
-    <label class="block text-sm font-medium text-slate-700">
-      {{ label }} <span v-if="required" class="text-red-500">*</span>
-    </label>
-    <div class="mt-1"><slot /></div>
-    <p v-if="hint && !error" class="mt-1 text-xs text-slate-500">{{ hint }}</p>
-    <p v-if="error" class="mt-1 text-xs text-red-600">{{ error }}</p>
+  <div :class="cn('flex flex-col gap-1.5 overflow-visible', $props.class)">
+    <Label :for="htmlFor" class="text-sm font-medium text-foreground">
+      {{ label }}
+      <span v-if="required" class="text-destructive">*</span>
+    </Label>
+    <slot />
+    <p v-if="hint && !error" class="text-xs text-muted-foreground">{{ hint }}</p>
+    <p v-if="error" class="text-xs text-destructive">{{ error }}</p>
   </div>
 </template>

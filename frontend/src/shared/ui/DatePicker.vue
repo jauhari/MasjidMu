@@ -1,16 +1,13 @@
 <script setup lang="ts">
-/**
- * DatePicker — wrapper @vuepic/vue-datepicker dgn brand teal.
- *
- * v-model: string ISO date "YYYY-MM-DD" atau null.
- *
- * Usage:
- *   <DatePicker v-model="form.startDate" placeholder="Pilih tanggal" />
- */
-import { computed } from 'vue';
-import { VueDatePicker } from '@vuepic/vue-datepicker';
-import { id } from 'date-fns/locale/id';
-import '@vuepic/vue-datepicker/dist/main.css';
+import { computed, ref } from 'vue';
+import { CalendarDate, getLocalTimeZone, parseDate, today } from '@internationalized/date';
+import { format } from 'date-fns';
+import { id as localeId } from 'date-fns/locale';
+import { CalendarIcon } from 'lucide-vue-next';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
 
 const props = defineProps<{
   modelValue: string | null | undefined;
@@ -21,57 +18,57 @@ const props = defineProps<{
 
 const emit = defineEmits<{ 'update:modelValue': [string | null] }>();
 
-const internal = computed<Date | null>({
-  get: () => (props.modelValue ? new Date(props.modelValue) : null),
-  set: (v) => {
+const open = ref(false);
+
+const calendarValue = computed({
+  get: () => {
+    if (!props.modelValue) return undefined;
+    try {
+      return parseDate(props.modelValue);
+    } catch {
+      return undefined;
+    }
+  },
+  set: (v: CalendarDate | undefined) => {
     if (!v) {
       emit('update:modelValue', null);
       return;
     }
-    const yyyy = v.getFullYear();
-    const mm = String(v.getMonth() + 1).padStart(2, '0');
-    const dd = String(v.getDate()).padStart(2, '0');
-    emit('update:modelValue', `${yyyy}-${mm}-${dd}`);
+    const iso = `${v.year}-${String(v.month).padStart(2, '0')}-${String(v.day).padStart(2, '0')}`;
+    emit('update:modelValue', iso);
+    open.value = false;
   },
+});
+
+const label = computed(() => {
+  if (!props.modelValue) return props.placeholder ?? 'Pilih tanggal';
+  try {
+    const d = parseDate(props.modelValue).toDate(getLocalTimeZone());
+    return format(d, 'dd MMM yyyy', { locale: localeId });
+  } catch {
+    return props.modelValue;
+  }
 });
 </script>
 
 <template>
-  <VueDatePicker
-    v-model="internal"
-    :placeholder="placeholder ?? 'Pilih tanggal'"
-    :disabled="disabled"
-    :enable-time-picker="false"
-    :auto-apply="true"
-    format="dd MMM yyyy"
-    :locale="id"
-    :clearable="!required"
-    text-input
-    class="masjidmu-dp"
-  />
+  <Popover v-model:open="open">
+    <PopoverTrigger as-child>
+      <Button
+        variant="outline"
+        :disabled="disabled"
+        :class="cn('w-full justify-start text-left font-normal', !modelValue && 'text-muted-foreground')"
+      >
+        <CalendarIcon class="mr-2 size-4" />
+        {{ label }}
+      </Button>
+    </PopoverTrigger>
+    <PopoverContent class="w-auto p-0" align="start">
+      <Calendar
+        v-model="calendarValue"
+        :default-placeholder="today(getLocalTimeZone())"
+        initial-focus
+      />
+    </PopoverContent>
+  </Popover>
 </template>
-
-<style>
-.masjidmu-dp {
-  --dp-font-family: inherit;
-  --dp-border-radius: 0.5rem;
-  --dp-input-padding: 0.5rem 0.75rem;
-  --dp-font-size: 0.875rem;
-  --dp-border-color: rgb(226 232 240);
-  --dp-border-color-hover: rgb(13 148 136);
-  --dp-primary-color: rgb(13 148 136);
-  --dp-primary-text-color: white;
-  --dp-text-color: rgb(15 23 42);
-  --dp-icon-color: rgb(100 116 139);
-  --dp-success-color: rgb(13 148 136);
-  --dp-input-icon-padding: 2.25rem;
-}
-.masjidmu-dp .dp__input {
-  border-color: rgb(226 232 240);
-  font-size: 0.875rem;
-}
-.masjidmu-dp .dp__input:focus {
-  border-color: rgb(13 148 136);
-  box-shadow: 0 0 0 3px rgb(13 148 136 / 0.15);
-}
-</style>
