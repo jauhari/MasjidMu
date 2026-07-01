@@ -83,6 +83,7 @@ onMounted(() => {
   prefetchRoutes();
   void refData.ensureAccounts();
   void refData.ensureCategories();
+  void refData.ensureFunds();
 });
 
 interface NavItem {
@@ -95,13 +96,21 @@ const mainItems: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
 ];
 
-const financeItems: NavItem[] = [
-  { to: '/accounts', label: 'Bagan Akun', icon: BookOpen },
-  { to: '/transaction-categories', label: 'Kategori', icon: Tags },
-  { to: '/funds', label: 'Dana', icon: HandCoins },
-  { to: '/transactions', label: 'Transaksi', icon: ArrowLeftRight },
-  { to: '/reports', label: 'Laporan', icon: FileBarChart2 },
-];
+// Dana relevan cuma buat tenant yang punya dana (mis. edisi LAZ/PSAK 109) —
+// masjid biasa tidak di-seed dana apa pun, jadi menunya disembunyikan
+// daripada tampil kosong dan membingungkan.
+const hasFunds = computed(() => refData.funds.length > 0);
+
+const financeItems = computed<NavItem[]>(() => {
+  const items: (NavItem | null)[] = [
+    { to: '/accounts', label: 'Bagan Akun', icon: BookOpen },
+    { to: '/transaction-categories', label: 'Kategori', icon: Tags },
+    hasFunds.value ? { to: '/funds', label: 'Dana', icon: HandCoins } : null,
+    { to: '/transactions', label: 'Transaksi', icon: ArrowLeftRight },
+    { to: '/reports', label: 'Laporan', icon: FileBarChart2 },
+  ];
+  return items.filter((i): i is NavItem => i !== null);
+});
 
 const otherItems: NavItem[] = [
   { to: '/mosque-profile', label: 'Profil Masjid', icon: Building2 },

@@ -25,14 +25,25 @@ export interface TxCategory {
   isActive: boolean;
 }
 
+export interface Fund {
+  id: string;
+  code: string;
+  name: string;
+  isRestricted: boolean;
+  isActive: boolean;
+}
+
 export const useReferenceDataStore = defineStore('referenceData', () => {
   const accounts = ref<LiteAccount[]>([]);
   const categories = ref<TxCategory[]>([]);
+  const funds = ref<Fund[]>([]);
   const accountsReady = ref(false);
   const categoriesReady = ref(false);
+  const fundsReady = ref(false);
 
   let accountsInflight: Promise<void> | null = null;
   let categoriesInflight: Promise<void> | null = null;
+  let fundsInflight: Promise<void> | null = null;
 
   async function ensureAccounts(force = false): Promise<LiteAccount[]> {
     if (accountsReady.value && !force) return accounts.value;
@@ -72,18 +83,41 @@ export const useReferenceDataStore = defineStore('referenceData', () => {
     return categories.value;
   }
 
+  async function ensureFunds(force = false): Promise<Fund[]> {
+    if (fundsReady.value && !force) return funds.value;
+    if (fundsInflight && !force) {
+      await fundsInflight;
+      return funds.value;
+    }
+    fundsInflight = (async () => {
+      const res = await api.get<{ data: Fund[] }>('/api/v1/funds');
+      funds.value = res.data;
+      fundsReady.value = true;
+    })();
+    try {
+      await fundsInflight;
+    } finally {
+      fundsInflight = null;
+    }
+    return funds.value;
+  }
+
   function invalidate(): void {
     accountsReady.value = false;
     categoriesReady.value = false;
+    fundsReady.value = false;
   }
 
   return {
     accounts,
     categories,
+    funds,
     accountsReady,
     categoriesReady,
+    fundsReady,
     ensureAccounts,
     ensureCategories,
+    ensureFunds,
     invalidate,
   };
 });
