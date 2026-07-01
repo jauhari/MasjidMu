@@ -2,9 +2,13 @@
  * Tenant resolver middleware.
  *
  * Resolves the tenant ID for the current request based on subdomain:
- *   - `{slug}.masjidmu.id`  → look up tenant by slug
+ *   - `{slug}.hisabmu.id`  → look up tenant by slug
  *   - `localhost:3000`      → use X-Tenant-Slug header (dev convenience)
- *   - `api.masjidmu.id`     → no tenant context (admin endpoints, super_admin)
+ *   - `api.hisabmu.id`     → no tenant context (admin endpoints, super_admin)
+ *
+ * Fallback for browser-initiated GETs (e.g. PDF/XLSX downloads via <a href>
+ * where custom headers can't be set): `?tenant_slug=` query parameter is
+ * accepted on dev hosts only.
  *
  * Sets `c.var.tenant` and `c.var.tenantId`. Downstream code uses
  * `withTenant(c.var.tenantId, ...)` to scope DB queries.
@@ -18,8 +22,8 @@ import { asSuperAdmin } from '../db/client.js';
 import { tenants, type Tenant } from '../db/schema/core.js';
 
 const PUBLIC_HOSTS = new Set([
-  'api.masjidmu.id',
-  'admin.masjidmu.id',
+  'api.hisabmu.id',
+  'admin.hisabmu.id',
 ]);
 
 export type TenantVars = {
@@ -30,20 +34,20 @@ export type TenantVars = {
 const cache = new Map<string, { tenant: Tenant; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000;
 
-function extractSlug(host: string, devHeaderSlug?: string): string | null {
+function extractSlug(host: string, devHeaderSlug?: string, devQuerySlug?: string): string | null {
   // Strip port
   const hostname = host.split(':')[0]!.toLowerCase();
 
-  // Dev: localhost — use header if provided
+  // Dev: localhost — header takes precedence over query param
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return devHeaderSlug?.toLowerCase() ?? null;
+    return (devHeaderSlug ?? devQuerySlug)?.toLowerCase() ?? null;
   }
 
   // Public host (no tenant)
   if (PUBLIC_HOSTS.has(hostname)) return null;
 
-  // Subdomain extraction: {slug}.masjidmu.id
-  const m = hostname.match(/^([a-z0-9][a-z0-9-]*)\.masjidmu\.id$/);
+  // Subdomain extraction: {slug}.hisabmu.id
+  const m = hostname.match(/^([a-z0-9][a-z0-9-]*)\.hisabmu\.id$/);
   if (m && m[1] !== 'api' && m[1] !== 'admin' && m[1] !== 'www') {
     return m[1];
   }
@@ -70,7 +74,8 @@ export const tenantResolver = (): MiddlewareHandler<{ Variables: TenantVars }> =
   async (c, next) => {
     const host = c.req.header('host') ?? '';
     const devHeader = c.req.header('x-tenant-slug') ?? undefined;
-    const slug = extractSlug(host, devHeader);
+    const devQuery = c.req.query('tenant_slug') ?? undefined;
+    const slug = extractSlug(host, devHeader, devQuery);
 
     if (slug) {
       const tenant = await resolveTenant(slug);

@@ -40,18 +40,19 @@ export const auth = betterAuth({
   },
 
   advanced: {
-    cookiePrefix: 'masjidmu',
+    cookiePrefix: 'hisabmu',
     useSecureCookies: env.NODE_ENV === 'production',
     // crossSubDomainCookies INTENTIONALLY OMITTED — we want per-subdomain
-    // scope. Super admin uses admin.masjidmu.id with separate flow.
+    // scope. Super admin uses admin.hisabmu.id with separate flow.
   },
 
   trustedOrigins: [
     'http://localhost:3000',
+    'http://localhost:3001',
     'http://localhost:5173',
-    'https://masjidmu.id',
-    'https://www.masjidmu.id',
-    'https://admin.masjidmu.id',
+    'https://hisabmu.id',
+    'https://www.hisabmu.id',
+    'https://admin.hisabmu.id',
     // Wildcard subdomain authoritative origin matching is enforced via Hono
     // CORS regex in app.ts; better-auth gets a static list of canonical hosts.
   ],

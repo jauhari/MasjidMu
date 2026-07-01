@@ -14,6 +14,7 @@ import { usersRoute } from './modules/core/users/route.js';
 import { accountsRoute } from './modules/accounting/accounts/route.js';
 import { transactionCategoriesRoute } from './modules/accounting/transaction-categories/route.js';
 import { transactionsRoute } from './modules/accounting/transactions/route.js';
+import { fundsRoute } from './modules/accounting/funds/route.js';
 import { reportsRoute } from './modules/accounting/reports/route.js';
 import { mosqueProfileRoute } from './modules/organization/mosque-profile/route.js';
 import { periodsRoute } from './modules/organization/periods/route.js';
@@ -37,7 +38,7 @@ app.use('/api/*', cors({
   origin: (origin) => {
     if (!origin) return null;
     if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return origin;
-    if (/^https:\/\/[a-z0-9-]+\.masjidmu\.id$/.test(origin)) return origin;
+    if (/^https:\/\/[a-z0-9-]+\.hisabmu\.id$/.test(origin)) return origin;
     return null;
   },
   credentials: true,
@@ -71,7 +72,7 @@ app.get('/healthz', (c) =>
   c.json({ status: 'ok', time: new Date().toISOString(), version: '0.0.0' }),
 );
 
-app.get('/', (c) => c.text('MasjidMu API v2'));
+app.get('/', (c) => c.text('HisabMu API v2'));
 
 // ─── Auth ────────────────────────────────────────────────────────────────
 // Per-IP rate limit on sign-in/sign-up to slow down credential stuffing.
@@ -91,6 +92,7 @@ app.route('/api/v1/users', usersRoute);
 app.route('/api/v1/accounts', accountsRoute);
 app.route('/api/v1/transaction-categories', transactionCategoriesRoute);
 app.route('/api/v1/transactions', transactionsRoute);
+app.route('/api/v1/funds', fundsRoute);
 app.route('/api/v1/reports', reportsRoute);
 app.route('/api/v1/mosque-profile', mosqueProfileRoute);
 app.route('/api/v1/periods', periodsRoute);

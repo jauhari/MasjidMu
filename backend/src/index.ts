@@ -9,5 +9,5 @@ if (env.ENABLE_CRON) {
 }
 
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {
-  logger.info(`MasjidMu API listening on http://localhost:${info.port}`);
+  logger.info(`HisabMu API listening on http://localhost:${info.port}`);
 });
