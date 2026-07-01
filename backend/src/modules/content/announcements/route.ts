@@ -21,6 +21,7 @@ import { requireSession, type SessionVars } from '../../../middleware/session.js
 import { requireTenant, type TenantVars } from '../../../middleware/tenant.js';
 import { requirePermission, type PermissionVars } from '../../../middleware/permission.js';
 import { auditInterceptor } from '../../../lib/audit.js';
+import { resolveActingUser } from '../../../lib/user-mapping.js';
 
 const SCOPE = ['public', 'internal', 'urgent'] as const;
 
@@ -131,7 +132,9 @@ export const announcementsRoute = new Hono<{
     zValidator('json', createSchema),
     async (c) => {
       const tenantId = c.get('tenantId')!;
-      const userId = c.get('user')!.id;
+      const authUser = c.get('user')!;
+      const tenantUser = await resolveActingUser(authUser, tenantId, !!c.get('isSuperAdmin'));
+      if (!tenantUser) return c.json({ error: 'tenant_user_missing' }, 422);
       const body = c.req.valid('json');
       const created = await withTenant(tenantId, async (tx) => {
         const baseSlug = slugify(body.slug ?? body.title);
@@ -146,7 +149,7 @@ export const announcementsRoute = new Hono<{
             scope: body.scope,
             publishedAt: body.publishedAt ? new Date(body.publishedAt) : null,
             expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
-            createdBy: userId,
+            createdBy: tenantUser.id,
           })
           .returning();
         return r!;

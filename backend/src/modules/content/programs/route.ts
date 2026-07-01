@@ -21,6 +21,7 @@ import { requireTenant, type TenantVars } from '../../../middleware/tenant.js';
 import { requirePermission, type PermissionVars } from '../../../middleware/permission.js';
 import { auditInterceptor } from '../../../lib/audit.js';
 import { pickFreeSlug, slugify } from '../../../lib/slug.js';
+import { resolveActingUser } from '../../../lib/user-mapping.js';
 
 const STATUS = ['draft', 'active', 'completed', 'cancelled'] as const;
 
@@ -94,7 +95,9 @@ export const programsRoute = new Hono<{
 
   .post('/', requirePermission('programs.manage'), zValidator('json', createSchema), async (c) => {
     const tenantId = c.get('tenantId')!;
-    const userId = c.get('user')!.id;
+    const authUser = c.get('user')!;
+    const tenantUser = await resolveActingUser(authUser, tenantId, !!c.get('isSuperAdmin'));
+    if (!tenantUser) return c.json({ error: 'tenant_user_missing' }, 422);
     const body = c.req.valid('json');
     const created = await withTenant(tenantId, async (tx) => {
       const base = slugify(body.slug ?? body.title);
@@ -116,7 +119,7 @@ export const programsRoute = new Hono<{
           endDate: body.endDate ? new Date(body.endDate) : null,
           status: body.status,
           isPublic: body.isPublic,
-          createdBy: userId,
+          createdBy: tenantUser.id,
         })
         .returning();
       return r!;
