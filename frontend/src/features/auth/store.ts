@@ -96,6 +96,30 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /**
+   * Super_admin dengan >1 keanggotaan tidak di-auto-resolve oleh backend
+   * (ambigu — lihat resolveHomeTenantSlug di backend). Daripada dashboard
+   * menampilkan tenant_context_required mentah, pilihkan lembaga pertama
+   * secara deterministik; GOD-mode TenantSwitcher tetap tersedia untuk
+   * pindah. Endpoint /api/v1/tenants memang super_admin-only — user biasa
+   * tidak pernah sampai sini karena backend sudah meresolusi tenant mereka.
+   */
+  async function ensureTenantSelected(): Promise<void> {
+    if (tenantSlug.value || !isSuperAdmin.value) return;
+    try {
+      const res = await api.get<{ data: { slug: string; isActive: boolean }[] }>('/api/v1/tenants');
+      const first = res.data.find((t) => t.isActive) ?? res.data[0];
+      if (first) {
+        setTenantSlug(first.slug);
+        tenantSlug.value = first.slug;
+        clearApiGetCache();
+        await fetchMe();
+      }
+    } catch {
+      // Biarkan tanpa tenant — TenantSwitcher masih bisa dipakai manual.
+    }
+  }
+
   async function init(): Promise<void> {
     if (initialized.value) return;
     try {
@@ -104,7 +128,10 @@ export const useAuthStore = defineStore('auth', () => {
       // Always resolve — the server figures out the tenant on its own now,
       // not gated on already having a cached slug (fresh login, cleared
       // localStorage, or a Google-redirect session all start with none).
-      if (user.value) await fetchMe();
+      if (user.value) {
+        await fetchMe();
+        await ensureTenantSelected();
+      }
     } catch {
       user.value = null;
     } finally {
@@ -119,6 +146,7 @@ export const useAuthStore = defineStore('auth', () => {
     });
     user.value = res.user;
     await fetchMe();
+    await ensureTenantSelected();
   }
 
   /** Redirects to Google's consent screen; resumes via init() on return. */
