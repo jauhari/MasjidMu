@@ -38,7 +38,14 @@ app.use('/api/*', cors({
   origin: (origin) => {
     if (!origin) return null;
     if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return origin;
+    // Production tenants / admin (canonical)
     if (/^https:\/\/[a-z0-9-]+\.hisabmu\.id$/.test(origin)) return origin;
+    if (/^https:\/\/(www\.)?hisabmu\.id$/.test(origin)) return origin;
+    // Legacy / alternate domain
+    if (/^https:\/\/[a-z0-9-]+\.masjidmu\.id$/.test(origin)) return origin;
+    if (/^https:\/\/(www\.)?masjidmu\.id$/.test(origin)) return origin;
+    // Cloudflare Pages preview & production *.pages.dev
+    if (/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.pages\.dev$/.test(origin)) return origin;
     return null;
   },
   credentials: true,
@@ -108,6 +115,7 @@ app.get('/api/v1/me', (c) => {
   const user = c.get('user');
   if (!user) return c.json({ error: 'unauthenticated' }, 401);
   const perms = c.get('permissions');
+  const tenant = c.get('tenant');
   return c.json({
     data: {
       id: user.id,
@@ -115,6 +123,15 @@ app.get('/api/v1/me', (c) => {
       name: user.name ?? null,
       isSuperAdmin: !!c.get('isSuperAdmin'),
       permissions: perms ? Array.from(perms) : [],
+      // Nama cantik lembaga untuk header/dashboard (bukan slug).
+      tenant: tenant
+        ? {
+            id: tenant.id,
+            slug: tenant.slug,
+            name: tenant.name,
+            edition: tenant.edition,
+          }
+        : null,
     },
   });
 });

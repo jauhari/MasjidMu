@@ -8,7 +8,10 @@
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "build:fe": "pnpm --filter @masjidmu/frontend build",
+    "deploy:cf": "pnpm build:fe && pnpm --filter @masjidmu/frontend deploy:cf",
+    "deploy:cf:preview": "pnpm build:fe && pnpm --filter @masjidmu/frontend deploy:cf:preview"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

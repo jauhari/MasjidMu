@@ -11,6 +11,7 @@ import type {
   BalanceSheetData,
   CashFlowData,
   ConsolidatedFundUsageData,
+  FundLedgerData,
   FundUsageData,
   GeneralLedgerData,
   JurnalUmumData,
@@ -181,6 +182,44 @@ function buildJurnalUmum(wb: ExcelJS.Workbook, r: ReportResponse<JurnalUmumData>
   autoFit(ws);
 }
 
+function buildFundLedger(wb: ExcelJS.Workbook, r: ReportResponse<FundLedgerData>): void {
+  const d = r.data;
+  const ws = wb.addWorksheet('Buku Dana');
+  addHeader(ws, `${REPORT_TITLES_ID['buku-dana']} — ${d.fundName}`, r.period.label, r.generatedAt);
+  ws.addRow([
+    'Saldo Awal',
+    'Penerimaan',
+    'Penyaluran',
+    'Surplus/(Defisit)',
+    'Saldo Akhir',
+  ]).font = { bold: true };
+  ws.addRow([
+    num(d.openingBalance),
+    num(d.totalPenerimaan),
+    num(d.totalPenyaluran),
+    num(d.surplusDeficit),
+    num(d.closingBalance),
+  ]);
+  applyNumberFormat(ws, [1, 2, 3, 4, 5]);
+  ws.addRow([]);
+  ws.addRow(['Tanggal', 'No Jurnal', 'Keterangan', 'Akun', 'Arah', 'Jumlah', 'Saldo']).font = {
+    bold: true,
+  };
+  for (const m of d.movements) {
+    ws.addRow([
+      m.journalDate.slice(0, 10),
+      m.journalNo,
+      m.description ?? '',
+      `${m.accountCode} — ${m.accountName}`,
+      m.direction === 'penerimaan' ? 'Masuk' : 'Keluar',
+      num(m.amount),
+      num(m.runningBalance),
+    ]);
+  }
+  applyNumberFormat(ws, [6, 7]);
+  autoFit(ws);
+}
+
 function buildFundUsage(wb: ExcelJS.Workbook, r: ReportResponse<FundUsageData>): void {
   const ws = wb.addWorksheet('Sumber & Penggunaan Dana');
   addHeader(ws, REPORT_TITLES_ID['sumber-penggunaan-dana'], r.period.label, r.generatedAt);
@@ -292,6 +331,9 @@ export async function renderReportXlsx<T>(response: ReportResponse<T>): Promise<
       break;
     case 'sumber-penggunaan-dana':
       buildFundUsage(wb, response as unknown as ReportResponse<FundUsageData>);
+      break;
+    case 'buku-dana':
+      buildFundLedger(wb, response as unknown as ReportResponse<FundLedgerData>);
       break;
     case 'konsolidasi-dana':
       buildConsolidatedFundUsage(wb, response as unknown as ReportResponse<ConsolidatedFundUsageData>);

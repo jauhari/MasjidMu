@@ -1,3 +1,8 @@
+> **Tidak dipakai saat ini** — backend di-host di Render (free tier), lihat
+> [`RENDER.md`](./RENDER.md). Railway tidak punya tier gratis lagi (minimal
+> Hobby plan ~$5/bulan + kartu kredit). Dokumen ini dibiarkan sebagai
+> referensi kalau suatu saat pindah ke Railway.
+
 # Railway Config
 
 Railway picks up the backend service from this directory automatically when

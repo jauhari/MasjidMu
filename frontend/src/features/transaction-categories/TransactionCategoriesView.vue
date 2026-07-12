@@ -47,6 +47,15 @@ interface Category {
   direction: Direction;
   debitAccountId: string | null;
   creditAccountId: string | null;
+  defaultFundId?: string | null;
+  isActive: boolean;
+}
+
+interface FundLite {
+  id: string;
+  code: string;
+  name: string;
+  isRestricted: boolean;
   isActive: boolean;
 }
 
@@ -54,6 +63,7 @@ const refData = useReferenceDataStore();
 const pageLoading = useDelayedLoading(120);
 const items = ref<Category[]>([]);
 const accounts = ref<Account[]>([]);
+const fundsList = ref<FundLite[]>([]);
 const saving = ref(false);
 const deleting = ref(false);
 const error = ref<string | null>(null);
@@ -92,8 +102,17 @@ const form = reactive({
   direction: 'income' as Direction,
   debitAccountId: '' as string,
   creditAccountId: '' as string,
+  defaultFundId: '' as string,
   isActive: true,
 });
+
+const fundOptions = computed(() => [
+  { value: '', label: '— Tanpa default dana —' },
+  ...fundsList.value.map((f) => ({
+    value: f.id,
+    label: f.isRestricted ? `${f.name} *` : f.name,
+  })),
+]);
 
 // Track whether the user has manually edited the code field. Once true, we
 // stop overwriting it from name/direction changes.
@@ -154,12 +173,19 @@ function fmtAccount(id: string | null): string {
   return a ? `${a.code} — ${a.name}` : id;
 }
 
+function fmtFund(id: string | null | undefined): string {
+  if (!id) return '\u2014';
+  const f = fundsList.value.find((x) => x.id === id);
+  return f ? f.name : '\u2014';
+}
+
 function resetForm(c?: Category | null): void {
   form.code = c?.code ?? '';
   form.name = c?.name ?? '';
   form.direction = c?.direction ?? 'income';
   form.debitAccountId = c?.debitAccountId ?? '';
   form.creditAccountId = c?.creditAccountId ?? '';
+  form.defaultFundId = c?.defaultFundId ?? '';
   form.isActive = c?.isActive ?? true;
   // Reset manual-edit flag so that creating after an edit still auto-fills.
   // For edits we treat the existing code as "user-controlled" (cannot be
@@ -171,12 +197,14 @@ async function load(): Promise<void> {
   if (items.value.length === 0) pageLoading.start();
   error.value = null;
   try {
-    const [cRes, accs] = await Promise.all([
+    const [cRes, accs, fundRows] = await Promise.all([
       api.get<{ data: Category[] }>('/api/v1/transaction-categories'),
       refData.ensureAccounts(),
+      refData.ensureFunds(),
     ]);
     items.value = cRes.data;
     accounts.value = accs;
+    fundsList.value = fundRows;
   } catch (err) {
     error.value = (err as Error).message;
   } finally {
@@ -223,6 +251,8 @@ function friendlyBackendError(code: string | undefined, missing?: string[]): str
       return 'Akun debit wajib untuk kategori pengeluaran';
     case 'invalid_accounts':
       return `Akun tidak valid${missing?.length ? ` (${missing.join(', ')})` : ''}`;
+    case 'invalid_fund':
+      return 'Dana default tidak valid';
     case 'code_taken':
       return 'Kode kategori sudah dipakai';
     default:
@@ -245,6 +275,7 @@ async function save(): Promise<void> {
       direction: form.direction,
       debitAccountId: form.debitAccountId || null,
       creditAccountId: form.creditAccountId || null,
+      defaultFundId: form.defaultFundId || null,
       isActive: form.isActive,
     };
     if (editing.value) {
@@ -295,7 +326,7 @@ onMounted(load);
   <div class="space-y-4">
     <PageHeader
       title="Kategori Transaksi"
-      description="Pemetaan kategori ke pasangan akun debit/kredit"
+      description="Template cepat: akun debit/kredit + dana default (untuk program seperti PAP)"
       :crumbs="[{ label: 'Dashboard', to: '/' }, { label: 'Keuangan' }, { label: 'Kategori' }]"
     >
       <template #actions>
@@ -339,6 +370,7 @@ onMounted(load);
             <TableHead class="px-4 text-xs uppercase tracking-wide text-muted-foreground">
               <SortableHeader field="credit" :active="sort" @sort="setSort">Kredit</SortableHeader>
             </TableHead>
+            <TableHead class="px-4 text-xs uppercase tracking-wide text-muted-foreground">Dana default</TableHead>
             <TableHead class="px-4 text-xs uppercase tracking-wide text-muted-foreground">
               <SortableHeader field="isActive" :active="sort" @sort="setSort">Status</SortableHeader>
             </TableHead>
@@ -360,6 +392,7 @@ onMounted(load);
             </TableCell>
             <TableCell class="px-4 py-2 text-xs text-muted-foreground">{{ fmtAccount(c.debitAccountId) }}</TableCell>
             <TableCell class="px-4 py-2 text-xs text-muted-foreground">{{ fmtAccount(c.creditAccountId) }}</TableCell>
+            <TableCell class="px-4 py-2 text-xs text-muted-foreground">{{ fmtFund(c.defaultFundId) }}</TableCell>
             <TableCell class="px-4 py-2">
               <StatusBadge :status="c.isActive ? 'active' : 'inactive'" />
             </TableCell>
@@ -430,12 +463,19 @@ onMounted(load);
             :required="form.direction === 'income'"
           />
         </FormField>
+        <FormField
+          v-if="fundsList.length > 0"
+          label="Dana default"
+          hint="Untuk program (PAP, ambulans, dll.) — otomatis terisi saat kategori dipilih di form transaksi"
+        >
+          <AppSelect v-model="form.defaultFundId" :options="fundOptions" />
+        </FormField>
         <FormField label="Status">
           <AppCheckbox v-model="form.isActive" label="Aktif" />
         </FormField>
         <p class="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-          <strong>Pemasukan</strong>: akun kredit wajib (akun pendapatan); debit (kas/bank) opsional, bisa dipilih saat input transaksi.<br />
-          <strong>Pengeluaran</strong>: akun debit wajib (akun beban); kredit (kas/bank) opsional, bisa dipilih saat input transaksi.
+          <strong>Template cepat</strong>: pilih kategori di form transaksi → akun (+ dana default) terisi.<br />
+          Contoh <strong>Infaq PAP</strong>: debit Kas PAP, kredit Infaq &amp; Sedekah, dana PAP 2026.
         </p>
       </form>
       <template #footer>

@@ -12,18 +12,25 @@
  *   POST   /api/v1/transactions/:id/recall       submitted → draft
  *   POST   /api/v1/transactions/:id/reset        rejected → draft
  *   POST   /api/v1/transactions/:id/post         approved → posted (+ journal)
+ *   POST   /api/v1/transactions/:id/express-post Bendahara/GOD: any open → posted
+ *   POST   /api/v1/transactions  body.expressPost=true  create + express-post
  *
  *   PATCH  /api/v1/transactions/:id/force-edit   GOD MODE: bypass state machine
  *   DELETE /api/v1/transactions/:id/force-delete GOD MODE: nuke + audit
  *
- * GOD MODE requires permission `transactions.god_mode` (super_admin only).
+ * Express path: `transactions.post` OR `transactions.god_mode` OR super_admin.
+ * GOD MODE force-* requires `transactions.god_mode` (super_admin only).
  */
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, count, desc, eq, gte, isNull, lte, or, sql } from 'drizzle-orm';
 import { withTenant } from '../../../db/client.js';
-import { transactionLines, transactions } from '../../../db/schema/accounting.js';
+import {
+  transactionCategories,
+  transactionLines,
+  transactions,
+} from '../../../db/schema/accounting.js';
 import { auditInterceptor } from '../../../lib/audit.js';
 import { resolveActingUser } from '../../../lib/user-mapping.js';
 import { requireSession, type SessionVars } from '../../../middleware/session.js';
@@ -37,6 +44,7 @@ import {
   JournalAlreadyPostedError,
   TransactionNotFoundError,
   UnbalancedLinesError,
+  expressPostTransaction,
   forceDeleteTransaction,
   forceEditTransaction,
   postTransaction,
@@ -47,6 +55,15 @@ import {
 } from './service.js';
 import { commitImport, matchAccounts, parseImportFile } from './import.js';
 import { IllegalTransitionError } from './state-machine.js';
+
+function canExpressPost(c: {
+  get: (k: string) => unknown;
+}): boolean {
+  if (c.get('isSuperAdmin')) return true;
+  const perms = c.get('permissions') as Set<string> | undefined;
+  if (!perms) return false;
+  return perms.has('transactions.post') || perms.has('transactions.god_mode');
+}
 
 const lineSchema = z.object({
   accountId: z.string().uuid(),
@@ -68,6 +85,8 @@ const createSchema = z.object({
   description: z.string().max(2000).optional(),
   referenceNo: z.string().max(100).optional(),
   lines: z.array(lineSchema).min(2),
+  /** Jalur cepat Bendahara/GOD: create + posting dalam satu request */
+  expressPost: z.boolean().optional(),
 });
 
 const updateSchema = z.object({
@@ -193,8 +212,12 @@ export const transactionsRoute = new Hono<{
     const q = c.req.query('q')?.trim() || null;
     const offset = Math.max(0, Number(c.req.query('offset')) || 0);
     const limit = Math.min(200, Math.max(1, Number(c.req.query('limit')) || 50));
+    /** Optional server-side direction filter: income | expense */
+    const directionFilter = c.req.query('direction')?.trim() || null;
 
-    const filters: (ReturnType<typeof eq> | ReturnType<typeof sql> | ReturnType<typeof or>)[] = [isNull(transactions.deletedAt)];
+    const filters: (ReturnType<typeof eq> | ReturnType<typeof sql> | ReturnType<typeof or>)[] = [
+      isNull(transactions.deletedAt),
+    ];
     if (status) {
       filters.push(
         eq(transactions.status, status as 'draft' | 'submitted' | 'approved' | 'rejected' | 'posted'),
@@ -230,11 +253,97 @@ export const transactionsRoute = new Hono<{
       );
     }
 
-    const [rows, totalRow] = await withTenant(tenantId, async (tx) =>
+    /**
+     * Arah transaksi:
+     *  1) dari kategori (income/expense)
+     *  2) fallback baris jurnal: kredit akun income → income; debit akun expense → expense
+     * Transfer kas murni (tanpa income/expense) → null (tidak masuk KPI pemasukan/pengeluaran).
+     */
+    const directionSql = sql`CASE
+      WHEN ${transactionCategories.direction} IS NOT NULL THEN ${transactionCategories.direction}::text
+      WHEN EXISTS (
+        SELECT 1
+          FROM transaction_lines tl
+          JOIN accounts a ON a.id = tl.account_id
+         WHERE tl.transaction_id = ${transactions.id}
+           AND a.account_type = 'income'
+           AND tl.credit::numeric > 0
+      ) THEN 'income'
+      WHEN EXISTS (
+        SELECT 1
+          FROM transaction_lines tl
+          JOIN accounts a ON a.id = tl.account_id
+         WHERE tl.transaction_id = ${transactions.id}
+           AND a.account_type = 'expense'
+           AND tl.debit::numeric > 0
+      ) THEN 'expense'
+      ELSE NULL
+    END`;
+
+    if (directionFilter === 'income' || directionFilter === 'expense') {
+      filters.push(sql`(${directionSql}) = ${directionFilter}`);
+    }
+
+    // KPI: hanya status posted (angka keuangan), hormati filter tanggal/q/akun.
+    // Filter status list diabaikan agar KPI = yang sudah di jurnal.
+    const summaryFilters: typeof filters = [
+      isNull(transactions.deletedAt),
+      eq(transactions.status, 'posted'),
+    ];
+    if (q) {
+      summaryFilters.push(
+        or(
+          sql`${transactions.transactionNo} ILIKE ${`%${q}%`}`,
+          sql`${transactions.description} ILIKE ${`%${q}%`}`,
+          sql`${transactions.referenceNo} ILIKE ${`%${q}%`}`,
+        )!,
+      );
+    }
+    if (dateFrom) {
+      summaryFilters.push(gte(transactions.transactionDate, new Date(dateFrom)));
+    }
+    if (dateTo) {
+      const end = new Date(dateTo);
+      end.setDate(end.getDate() + 1);
+      end.setMilliseconds(end.getMilliseconds() - 1);
+      summaryFilters.push(lte(transactions.transactionDate, end));
+    }
+    if (accountId) {
+      summaryFilters.push(
+        sql`${transactions.id} IN (
+          SELECT tl.transaction_id FROM transaction_lines tl WHERE tl.account_id = ${accountId}::uuid
+        )`,
+      );
+    }
+
+    const [rows, totalRow, summaryRow] = await withTenant(tenantId, async (tx) =>
       Promise.all([
         tx
-          .select()
+          .select({
+            id: transactions.id,
+            tenantId: transactions.tenantId,
+            transactionNo: transactions.transactionNo,
+            transactionDate: transactions.transactionDate,
+            categoryId: transactions.categoryId,
+            amount: transactions.amount,
+            description: transactions.description,
+            referenceNo: transactions.referenceNo,
+            status: transactions.status,
+            createdBy: transactions.createdBy,
+            submittedAt: transactions.submittedAt,
+            submittedBy: transactions.submittedBy,
+            postedAt: transactions.postedAt,
+            postedBy: transactions.postedBy,
+            createdAt: transactions.createdAt,
+            updatedAt: transactions.updatedAt,
+            deletedAt: transactions.deletedAt,
+            direction: sql<'income' | 'expense' | null>`${directionSql}`.as('direction'),
+          })
           .from(transactions)
+          .leftJoin(
+            transactionCategories,
+            eq(transactionCategories.id, transactions.categoryId),
+          )
           .where(and(...filters))
           .orderBy(desc(transactions.transactionDate))
           .limit(limit)
@@ -242,10 +351,37 @@ export const transactionsRoute = new Hono<{
         tx
           .select({ total: count() })
           .from(transactions)
+          .leftJoin(
+            transactionCategories,
+            eq(transactionCategories.id, transactions.categoryId),
+          )
           .where(and(...filters)),
+        tx
+          .select({
+            incomeTotal: sql<string>`COALESCE(SUM(CASE WHEN (${directionSql}) = 'income' THEN ${transactions.amount}::numeric ELSE 0 END), 0)::text`,
+            expenseTotal: sql<string>`COALESCE(SUM(CASE WHEN (${directionSql}) = 'expense' THEN ${transactions.amount}::numeric ELSE 0 END), 0)::text`,
+          })
+          .from(transactions)
+          .leftJoin(
+            transactionCategories,
+            eq(transactionCategories.id, transactions.categoryId),
+          )
+          .where(and(...summaryFilters)),
       ]),
     );
-    return c.json({ data: rows, total: totalRow[0]?.total ?? 0, offset, limit });
+
+    return c.json({
+      data: rows,
+      total: totalRow[0]?.total ?? 0,
+      offset,
+      limit,
+      summary: {
+        incomeTotal: summaryRow[0]?.incomeTotal ?? '0',
+        expenseTotal: summaryRow[0]?.expenseTotal ?? '0',
+        /** Hanya posted; filter tanggal/q/akun sama list (status list diabaikan). */
+        scope: 'posted' as const,
+      },
+    });
   })
 
   .post('/', requirePermission('transactions.create'), zValidator('json', createSchema), async (c) => {
@@ -253,6 +389,17 @@ export const transactionsRoute = new Hono<{
     const tenant = c.get('tenant')!;
     const authUser = c.get('user')!;
     const body = c.req.valid('json');
+
+    if (body.expressPost && !canExpressPost(c)) {
+      return c.json(
+        {
+          error: 'forbidden',
+          required: 'transactions.post|transactions.god_mode',
+          detail: 'Simpan & Posting hanya untuk Bendahara (post) atau GOD mode',
+        },
+        403,
+      );
+    }
 
     const u = await resolveActingUser(authUser, tenantId, !!c.get('isSuperAdmin'));
     if (!u) return c.json({ error: 'tenant_user_missing' }, 422);
@@ -295,6 +442,45 @@ export const transactionsRoute = new Hono<{
       );
       return t!;
     });
+
+    if (body.expressPost) {
+      try {
+        const posted = await expressPostTransaction({
+          tenantId,
+          tenantSlug: tenant.slug,
+          transactionId: created.id,
+          appUserId: u.id,
+        });
+        const { refreshReportsAfterPosting } = await import(
+          '../../../lib/cron/refresh-mat-views.js'
+        );
+        await refreshReportsAfterPosting();
+        return c.json(
+          {
+            data: {
+              ...created,
+              status: 'posted' as const,
+              journalId: posted.journalId,
+              journalNo: posted.journalNo,
+            },
+          },
+          201,
+        );
+      } catch (e) {
+        const m = mapErrorToResponse(e);
+        return c.json(
+          {
+            ...m.body,
+            detail:
+              (m.body as { detail?: string }).detail ??
+              'Draft tersimpan, tetapi posting gagal. Gunakan Posting Cepat di daftar.',
+            draftId: created.id,
+          },
+          m.status,
+        );
+      }
+    }
+
     return c.json({ data: created }, 201);
   })
 
@@ -477,6 +663,50 @@ export const transactionsRoute = new Hono<{
         transactionId: id,
         appUserId: u.id,
       });
+      // Segarkan MV laporan supaya dashboard langsung mencerminkan posting
+      const { refreshReportsAfterPosting } = await import('../../../lib/cron/refresh-mat-views.js');
+      await refreshReportsAfterPosting();
+      return c.json({ data: r });
+    } catch (e) {
+      const m = mapErrorToResponse(e);
+      return c.json(m.body, m.status);
+    }
+  })
+
+  /**
+   * Jalur cepat Bendahara / GOD mode:
+   * draft | submitted | approved → posted + jurnal (skip alur ajukan/setujui).
+   */
+  .post('/:id/express-post', async (c) => {
+    if (!canExpressPost(c)) {
+      return c.json(
+        {
+          error: 'forbidden',
+          required: 'transactions.post|transactions.god_mode',
+          detail: 'Posting cepat hanya untuk Bendahara (post) atau GOD mode',
+        },
+        403,
+      );
+    }
+    const tenantId = c.get('tenantId')!;
+    const tenant = c.get('tenant')!;
+    const authUser = c.get('user')!;
+    const id = c.req.param('id');
+
+    const u = await resolveActingUser(authUser, tenantId, !!c.get('isSuperAdmin'));
+    if (!u) return c.json({ error: 'tenant_user_missing' }, 422);
+
+    try {
+      const r = await expressPostTransaction({
+        tenantId,
+        tenantSlug: tenant.slug,
+        transactionId: id,
+        appUserId: u.id,
+      });
+      const { refreshReportsAfterPosting } = await import(
+        '../../../lib/cron/refresh-mat-views.js'
+      );
+      await refreshReportsAfterPosting();
       return c.json({ data: r });
     } catch (e) {
       const m = mapErrorToResponse(e);

@@ -22,6 +22,8 @@ export interface TxCategory {
   direction: 'income' | 'expense';
   debitAccountId: string | null;
   creditAccountId: string | null;
+  /** Optional default fund (PSAK 109) applied when category is picked. */
+  defaultFundId?: string | null;
   isActive: boolean;
 }
 

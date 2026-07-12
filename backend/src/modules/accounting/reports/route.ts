@@ -49,6 +49,7 @@ import { buildGeneralLedger } from './services/general-ledger.js';
 import { buildTrialBalance } from './services/trial-balance.js';
 import { buildJurnalUmum } from './services/jurnal-umum.js';
 import { buildFundUsage } from './services/fund-usage.js';
+import { buildFundLedger, FundLedgerNotFoundError } from './services/fund-ledger.js';
 import { buildConsolidatedFundUsage } from './services/consolidation.js';
 import { renderReportPdf } from './export/pdf.js';
 import { renderReportXlsx } from './export/xlsx.js';
@@ -223,6 +224,79 @@ export const reportsRoute = new Hono<{
   }, async (c) =>
     handle(c, { reportType: 'sumber-penggunaan-dana', build: (r) => buildFundUsage(r) }),
   )
+
+  // Detail 1 dana (mis. Infaq Rutin PAP) — wajib fundId. Cache key include fundId.
+  .get('/buku-dana', async (c, next) => {
+    const fmt = resolveFormat(c.req.query('format'));
+    return requirePermission(permFor(fmt))(c, next);
+  }, async (c) => {
+    const fundId = c.req.query('fundId');
+    if (!fundId) {
+      return c.json({ error: 'fund_id_required', detail: 'Parameter fundId wajib diisi' }, 400);
+    }
+    const tenantId = c.get('tenantId') as string;
+    const q = parseQuery(c);
+    let period: ReturnType<typeof parsePeriod>;
+    try {
+      period = parsePeriod(q);
+    } catch (e) {
+      if (e instanceof InvalidPeriodError) {
+        return c.json({ error: 'invalid_period', detail: e.message }, 400);
+      }
+      throw e;
+    }
+
+    try {
+      const cacheKey = `${reportCacheKey(tenantId, 'buku-dana', period)}:fund:${fundId}`;
+      if (q.format === 'json') {
+        const cached = await getCachedReport(cacheKey);
+        if (cached) return c.json(cached);
+        const data = await buildFundLedger({ tenantId, period, fundId });
+        const response = {
+          reportType: 'buku-dana' as const,
+          tenantId,
+          period,
+          generatedAt: new Date().toISOString(),
+          data,
+        };
+        await setCachedReport(cacheKey, response);
+        return c.json(response);
+      }
+      const data = await buildFundLedger({ tenantId, period, fundId });
+      const response = {
+        reportType: 'buku-dana' as const,
+        tenantId,
+        period,
+        generatedAt: new Date().toISOString(),
+        data,
+      };
+      if (q.format === 'pdf') {
+        const pdf = await renderReportPdf(response);
+        return c.body(pdf as never, {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `inline; filename="buku-dana-${period.label}.pdf"`,
+          },
+        });
+      }
+      if (q.format === 'xlsx') {
+        const xlsx = await renderReportXlsx(response);
+        return c.body(xlsx as never, {
+          headers: {
+            'Content-Type':
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': `attachment; filename="buku-dana-${period.label}.xlsx"`,
+          },
+        });
+      }
+      return c.json({ error: 'unsupported_format' }, 400);
+    } catch (e) {
+      if (e instanceof FundLedgerNotFoundError) {
+        return c.json({ error: 'fund_not_found', detail: e.message }, 404);
+      }
+      throw e;
+    }
+  })
 
   // Konsolidasi multi-entitas: tenant dari sesi diperlakukan sebagai induk;
   // service meresolusi cabangnya sendiri. Mendukung json/pdf/xlsx.

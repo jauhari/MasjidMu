@@ -12,6 +12,7 @@ export const REPORT_TITLES_ID: Record<ReportType, string> = {
   'trial-balance': 'Neraca Saldo (Trial Balance)',
   'jurnal-umum': 'Jurnal Umum',
   'sumber-penggunaan-dana': 'Laporan Sumber & Penggunaan Dana',
+  'buku-dana': 'Buku Dana (Detail Penerimaan & Penyaluran)',
   'konsolidasi-dana': 'Laporan Konsolidasi Sumber & Penggunaan Dana',
 };
 

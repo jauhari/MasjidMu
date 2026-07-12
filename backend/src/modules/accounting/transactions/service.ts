@@ -104,19 +104,29 @@ export async function validateLines(tenantId: string, lines: LineInput[]): Promi
   }
 
   // Verify fund ids (if provided) belong to tenant + active.
+  // Multi-fund tenants (LAZ / PSAK 109): fund_id wajib — tanpa tag, SPD/Buku Dana
+  // mengabaikan baris income/expense sehingga "posted tapi tidak masuk dana".
+  const activeFunds = await withTenant(tenantId, async (db) =>
+    db
+      .select({ id: funds.id })
+      .from(funds)
+      .where(and(eq(funds.tenantId, tenantId), isNull(funds.deletedAt), eq(funds.isActive, true))),
+  );
+  const validFundIds = new Set(activeFunds.map((f) => f.id));
+  const multiFund = activeFunds.length > 1;
+
   const fundIds = Array.from(
     new Set(lines.map((l) => l.fundId).filter((x): x is string => !!x)),
   );
-  if (fundIds.length > 0) {
-    const validFunds = await withTenant(tenantId, async (db) =>
-      db
-        .select({ id: funds.id })
-        .from(funds)
-        .where(and(eq(funds.tenantId, tenantId), isNull(funds.deletedAt), eq(funds.isActive, true))),
-    );
-    const validFundIds = new Set(validFunds.map((f) => f.id));
-    for (const id of fundIds) {
-      if (!validFundIds.has(id)) throw new InvalidLinesError(`invalid fund: ${id}`);
+  for (const id of fundIds) {
+    if (!validFundIds.has(id)) throw new InvalidLinesError(`invalid fund: ${id}`);
+  }
+  if (multiFund) {
+    const missing = lines.filter((l) => !l.fundId);
+    if (missing.length > 0) {
+      throw new InvalidLinesError(
+        'fund_id required on every line when tenant has multiple funds (PSAK 109)',
+      );
     }
   }
 }
@@ -304,23 +314,34 @@ export async function postTransaction(args: {
 }
 
 /**
- * Bypass state machine: post directly from draft → posted (used by historical
- * import only). Wraps postTransaction's core but skips canTransition() guard.
- * Called inside an existing withTenant context.
+ * Bypass state machine: post directly → posted + generate journal.
+ *
+ * Used by:
+ *   - historical import
+ *   - express path (Bendahara / GOD mode): draft|submitted|approved → posted
+ *
+ * Skips canTransition(); still validates lines & balance trigger.
  */
 export async function generateJournalForPostedImport(args: {
   tenantId: string;
   tenantSlug: string;
   transactionId: string;
   appUserId: string;
+  /** Optional audit note (default: import) */
+  mode?: 'import' | 'express';
 }): Promise<{ id: string; journalId: string; journalNo: string }> {
-  const { tenantId, tenantSlug, transactionId, appUserId } = args;
+  const { tenantId, tenantSlug, transactionId, appUserId, mode = 'import' } = args;
   return withTenant(tenantId, async (db) => {
     const [tx] = await db
       .select()
       .from(transactions)
       .where(and(eq(transactions.id, transactionId), isNull(transactions.deletedAt)));
     if (!tx) throw new TransactionNotFoundError();
+
+    if (tx.status === 'posted') throw new JournalAlreadyPostedError();
+    if (tx.status === 'rejected') {
+      throw new IllegalTransitionError(tx.status, 'posted');
+    }
 
     const dup = await db
       .select({ id: journals.id })
@@ -348,7 +369,11 @@ export async function generateJournalForPostedImport(args: {
         journalNo,
         journalDate: tx.transactionDate,
         transactionId: tx.id,
-        description: tx.description ?? `Imported journal for ${tx.transactionNo}`,
+        description:
+          tx.description ??
+          (mode === 'express'
+            ? `Express-post for ${tx.transactionNo}`
+            : `Imported journal for ${tx.transactionNo}`),
         createdBy: appUserId,
       })
       .returning({ id: journals.id, journalNo: journals.journalNo });
@@ -375,8 +400,27 @@ export async function generateJournalForPostedImport(args: {
       })
       .where(eq(transactions.id, tx.id));
 
+    await db.insert(approvalLogs).values({
+      transactionId: tx.id,
+      userId: appUserId,
+      action: mode === 'express' ? 'express_post' : 'import_post',
+      notes: `journal=${j!.journalNo}; from=${tx.status}`,
+    });
+
     return { id: tx.id, journalId: j!.id, journalNo: j!.journalNo };
   });
+}
+
+/**
+ * Jalur cepat Bendahara / GOD mode: draft|submitted|approved → posted + jurnal.
+ */
+export async function expressPostTransaction(args: {
+  tenantId: string;
+  tenantSlug: string;
+  transactionId: string;
+  appUserId: string;
+}): Promise<{ id: string; journalId: string; journalNo: string }> {
+  return generateJournalForPostedImport({ ...args, mode: 'express' });
 }
 
 /**

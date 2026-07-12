@@ -7,9 +7,10 @@
  * dibuat kapan saja; jenis dana (fundType) dipilih dari PSAK 109 yang sudah
  * ada — dana kustom biasanya "Infak/Sedekah" + terikat.
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { Plus, Pencil, Archive } from 'lucide-vue-next';
 import { api, formatApiError } from '@/shared/api/client';
+import { ensureUniqueFundCode, generateFundCode } from '@/shared/lib/fund-code';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -76,6 +77,26 @@ const form = reactive({
 
 const sortedItems = computed(() => [...items.value].sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code)));
 
+/** Preview kode otomatis (create only) — prefix PSAK + slug nama. */
+const autoCode = computed(() => {
+  if (editing.value) return form.code;
+  const base = generateFundCode(form.name, form.fundType);
+  if (!base) return '—';
+  return ensureUniqueFundCode(
+    base,
+    items.value.map((f) => f.code),
+  );
+});
+
+// Sync form.code from auto generator while creating.
+watch(
+  () => [form.name, form.fundType, modalOpen.value, editing.value] as const,
+  () => {
+    if (!modalOpen.value || editing.value) return;
+    form.code = autoCode.value === '—' ? '' : autoCode.value;
+  },
+);
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
@@ -115,8 +136,11 @@ function openEdit(f: Fund): void {
 
 function validate(): string | null {
   if (form.name.trim().length < 2) return 'Nama dana minimal 2 karakter';
-  if (!editing.value && !/^[A-Za-z0-9._-]+$/.test(form.code.trim())) {
-    return 'Kode: huruf, angka, titik, garis bawah/hubung saja';
+  if (!editing.value) {
+    const code = autoCode.value;
+    if (!code || code === '—' || !/^[A-Za-z0-9._-]+$/.test(code)) {
+      return 'Kode otomatis belum valid — lengkapi nama dana';
+    }
   }
   return null;
 }
@@ -139,8 +163,13 @@ async function save(): Promise<void> {
         isActive: form.isActive,
       });
     } else {
+      // Recompute at submit so uniqueness is fresh against current list.
+      const code = ensureUniqueFundCode(
+        generateFundCode(form.name, form.fundType),
+        items.value.map((f) => f.code),
+      );
       await api.post('/api/v1/funds', {
-        code: form.code.trim(),
+        code,
         name: form.name.trim(),
         fundType: form.fundType,
         isRestricted: form.isRestricted,
@@ -182,7 +211,7 @@ onMounted(load);
   <div class="space-y-4">
     <PageHeader
       title="Dana"
-      description="Dana PSAK 109/112 dan dana program/kampanye kustom (mis. Program Ambulans)."
+      description="Kantong uang terpisah (PSAK 109/112 + program kustom). Bukan tempat catat transaksi."
       :crumbs="[{ label: 'Dashboard', to: '/' }, { label: 'Keuangan' }, { label: 'Dana' }]"
     >
       <template #actions>
@@ -191,6 +220,28 @@ onMounted(load);
         </Button>
       </template>
     </PageHeader>
+
+    <Card class="border-emerald-200/80 bg-emerald-50/40">
+      <CardContent class="space-y-2 p-4 text-sm text-emerald-950/90">
+        <p class="font-semibold text-emerald-950">Cara pakai Dana (contoh: Infaq Rutin PAP)</p>
+        <ol class="list-decimal space-y-1 pl-5 text-[13px] leading-relaxed text-emerald-950/80">
+          <li>
+            <strong>Buat dana</strong> di sini — isi nama (mis. <em>Infaq Rutin PAP</em>);
+            kode dibuat otomatis (mis. <code class="rounded bg-white/80 px-1">INF-PAP</code>),
+            pilih jenis <em>Infak / Sedekah</em>, centang terikat jika perlu.
+          </li>
+          <li>
+            <strong>Catat transaksi</strong> di menu Transaksi → pilih kategori + nominal → di form jurnal
+            pilih <strong>Dana = Infaq Rutin PAP</strong> (header hijau). Tanpa pilih dana, uang
+            <em>tidak</em> masuk laporan per dana.
+          </li>
+          <li>
+            <strong>Laporan khusus</strong> → Laporan → <em>Buku Dana</em> → pilih dana PAP + periode.
+            Lihat daftar masuk, keluar, dan saldo. Ringkasan semua dana: <em>Sumber &amp; Penggunaan Dana</em>.
+          </li>
+        </ol>
+      </CardContent>
+    </Card>
 
     <Alert v-if="error" variant="destructive">
       <AlertDescription>{{ error }}</AlertDescription>
@@ -256,14 +307,24 @@ onMounted(load);
         <AlertDescription>{{ modalError }}</AlertDescription>
       </Alert>
       <form class="space-y-3" @submit.prevent="save">
-        <FormField label="Nama dana" required hint="Mis. 'Program Ambulans', 'Peduli Aceh-Sumatra'">
+        <FormField label="Nama dana" required hint="Mis. 'Program Ambulans', 'Infaq Rutin PAP'">
           <Input v-model="form.name" required minlength="2" placeholder="Program Ambulans" />
-        </FormField>
-        <FormField label="Kode" required :hint="editing ? 'Kode tidak bisa diubah' : 'Mis. PRG-AMBULANS'">
-          <Input v-model="form.code" :disabled="!!editing" required maxlength="20" placeholder="PRG-AMBULANS" />
         </FormField>
         <FormField label="Jenis dana (PSAK 109)" required hint="Program/kampanye biasanya masuk Infak/Sedekah">
           <AppSelect v-model="form.fundType" :options="fundTypeOptions" />
+        </FormField>
+        <FormField
+          label="Kode"
+          :hint="editing ? 'Kode sistem, tidak bisa diubah' : 'Otomatis dari jenis PSAK + nama (standar HisabMu)'"
+        >
+          <div
+            class="flex h-10 items-center rounded-md border border-input bg-muted/40 px-3 font-mono text-sm tracking-wide text-foreground"
+            aria-live="polite"
+          >
+            <span :class="autoCode === '—' ? 'text-muted-foreground' : 'font-semibold'">
+              {{ autoCode }}
+            </span>
+          </div>
         </FormField>
         <FormField label="Sifat">
           <AppCheckbox v-model="form.isRestricted" label="Dana terikat (penggunaan dibatasi sesuai tujuan donasi)" />

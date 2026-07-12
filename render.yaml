@@ -1,0 +1,50 @@
+# Render Blueprint — backend Hono (free tier).
+# Dashboard → New + → Blueprint → pilih repo ini. Render otomatis membaca file
+# ini dan mengisi semua field service; env yang `sync: false` diisi manual
+# sekali di dashboard (secret, tidak boleh masuk git).
+#
+# Docs: backend/RENDER.md
+
+services:
+  - type: web
+    name: masjidmu-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: singapore
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      - key: JOBS_INTERNAL_TOKEN
+        generateValue: true
+      # ── Isi manual di dashboard (secret / spesifik-environment) ──
+      - key: DATABASE_URL
+        sync: false
+      - key: BETTER_AUTH_URL
+        sync: false
+      - key: UPSTASH_REDIS_URL
+        sync: false
+      - key: UPSTASH_REDIS_TOKEN
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY
+        sync: false
+      - key: R2_SECRET_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: masjidmu-media
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false

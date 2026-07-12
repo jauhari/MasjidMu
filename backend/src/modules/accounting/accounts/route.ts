@@ -45,19 +45,41 @@ const accountTypeEnum = z.enum([
 ]);
 const normalBalanceEnum = z.enum(['debit', 'credit']);
 
+/** Empty string from FE selects → null; never reject "" as invalid UUID. */
+const optionalUuid = z.preprocess(
+  (v) => (v === '' || v === undefined ? null : v),
+  z.string().uuid().nullable(),
+);
+
 const createSchema = z.object({
-  parentId: z.string().uuid().nullable().optional(),
+  parentId: optionalUuid.optional(),
   code: z
     .string()
-    .min(1)
+    .trim()
+    .min(1, 'Kode akun wajib diisi')
     .max(20)
-    .regex(/^[A-Za-z0-9._-]+$/, 'invalid characters'),
-  name: z.string().min(1).max(200),
+    .regex(/^[A-Za-z0-9._-]+$/, 'Kode hanya boleh huruf, angka, titik, _ atau -'),
+  name: z.string().trim().min(1, 'Nama akun wajib diisi').max(200),
   accountType: accountTypeEnum,
   normalBalance: normalBalanceEnum,
-  description: z.string().max(2000).nullable().optional(),
+  description: z.preprocess(
+    (v) => (v === '' || v === undefined ? null : v),
+    z.string().max(2000).nullable(),
+  ).optional(),
   isActive: z.boolean().optional(),
-  openingBalance: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+  openingBalance: z.preprocess(
+    (v) => {
+      if (v === '' || v === undefined || v === null) return '0';
+      // Terima "1.000,50" (ID) → "1000.50" kasar: buang pemisah ribuan titik
+      const s = String(v).trim().replace(/\s/g, '');
+      if (/^\d+([.,]\d{1,2})?$/.test(s)) return s.replace(',', '.');
+      if (/^\d{1,3}(\.\d{3})+(,\d{1,2})?$/.test(s)) {
+        return s.replace(/\./g, '').replace(',', '.');
+      }
+      return s;
+    },
+    z.string().regex(/^\d+(\.\d{1,2})?$/, 'Saldo awal harus angka'),
+  ).optional(),
 });
 
 const updateSchema = createSchema.partial().omit({ code: true });

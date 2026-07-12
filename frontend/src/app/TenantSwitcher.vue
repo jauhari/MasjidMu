@@ -7,7 +7,7 @@
  * only). Pindah tenant = ganti X-Tenant-Slug lalu reload halaman penuh —
  * paling sederhana & aman, bukan aksi yang sering dipakai.
  */
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Building2, Check, ChevronsUpDown } from 'lucide-vue-next';
 import { api, formatApiError } from '@/shared/api/client';
 import { useAuthStore } from '@/features/auth/store';
@@ -34,12 +34,22 @@ const loading = ref(false);
 const switching = ref<string | null>(null);
 const error = ref<string | null>(null);
 
-const currentLabel = computed(
-  () => tenants.value.find((t) => t.slug === auth.tenantSlug)?.name ?? auth.tenantSlug ?? '—',
+const currentTenant = computed(
+  () => tenants.value.find((t) => t.slug === auth.tenantSlug) ?? null,
 );
 
-async function loadTenants(open: boolean): Promise<void> {
-  if (!open || tenants.value.length || loading.value) return;
+/** Nama lembaga di header — prioritaskan nama DB, jangan tampilkan slug mentah. */
+const currentLabel = computed(() => {
+  if (currentTenant.value?.name) return currentTenant.value.name;
+  if (auth.tenantDisplayName && auth.tenantDisplayName !== 'HisabMu') {
+    return auth.tenantDisplayName;
+  }
+  if (loading.value) return 'Memuat…';
+  return auth.tenantDisplayName || '—';
+});
+
+async function loadTenants(force = false): Promise<void> {
+  if ((!force && tenants.value.length) || loading.value) return;
   loading.value = true;
   error.value = null;
   try {
@@ -51,6 +61,10 @@ async function loadTenants(open: boolean): Promise<void> {
     loading.value = false;
   }
 }
+
+onMounted(() => {
+  void loadTenants();
+});
 
 async function switchTo(slug: string): Promise<void> {
   if (slug === auth.tenantSlug || switching.value) return;
@@ -66,11 +80,11 @@ async function switchTo(slug: string): Promise<void> {
 </script>
 
 <template>
-  <DropdownMenu @update:open="loadTenants">
+  <DropdownMenu @update:open="(open) => open && loadTenants()">
     <DropdownMenuTrigger as-child>
       <button
         type="button"
-        class="flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        class="flex min-w-0 max-w-[200px] items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 py-1 text-sm text-muted-foreground shadow-xs transition-colors hover:border-primary/40 hover:text-foreground"
         title="Pindah lembaga (GOD mode)"
       >
         <Building2 class="size-3.5 shrink-0 text-primary" />
@@ -78,7 +92,7 @@ async function switchTo(slug: string): Promise<void> {
         <ChevronsUpDown class="size-3 shrink-0 opacity-50" />
       </button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="start" class="w-64">
+    <DropdownMenuContent align="end" class="w-64">
       <DropdownMenuLabel class="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
         <Building2 class="size-3.5" /> Pindah Lembaga (GOD mode)
       </DropdownMenuLabel>

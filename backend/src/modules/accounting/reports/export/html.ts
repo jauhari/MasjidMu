@@ -10,6 +10,7 @@ import type {
   BalanceSheetData,
   CashFlowData,
   ConsolidatedFundUsageData,
+  FundLedgerData,
   FundUsageData,
   GeneralLedgerData,
   JurnalUmumData,
@@ -271,9 +272,58 @@ export function renderReportHtml<T>(response: ReportResponse<T>): string {
     case 'sumber-penggunaan-dana':
       body = renderFundUsage(response.data as unknown as FundUsageData);
       break;
+    case 'buku-dana':
+      body = renderFundLedger(response.data as unknown as FundLedgerData);
+      break;
     case 'konsolidasi-dana':
       body = renderConsolidatedFundUsage(response.data as unknown as ConsolidatedFundUsageData);
       break;
   }
   return shell(response.reportType, response.period.label, body, response.generatedAt);
+}
+
+function renderFundLedger(d: FundLedgerData): string {
+  return `
+    <p><strong>${escapeHtml(d.fundName)}</strong> (${escapeHtml(d.fundCode)})${d.isRestricted ? ' · terikat' : ''}</p>
+    <table>
+      <thead><tr>
+        <th class="num">Saldo Awal</th><th class="num">Penerimaan</th><th class="num">Penyaluran</th>
+        <th class="num">Surplus/(Defisit)</th><th class="num">Saldo Akhir</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td class="num">${formatIDR(d.openingBalance)}</td>
+          <td class="num">${formatIDR(d.totalPenerimaan)}</td>
+          <td class="num">${formatIDR(d.totalPenyaluran)}</td>
+          <td class="num">${formatIDR(d.surplusDeficit)}</td>
+          <td class="num">${formatIDR(d.closingBalance)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <h2>Mutasi Periode</h2>
+    <table>
+      <thead><tr>
+        <th>Tanggal</th><th>No</th><th>Keterangan</th><th>Akun</th>
+        <th>Arah</th><th class="num">Jumlah</th><th class="num">Saldo</th>
+      </tr></thead>
+      <tbody>
+        ${
+          d.movements.length
+            ? d.movements
+                .map(
+                  (m) => `<tr>
+              <td>${escapeHtml(m.journalDate.slice(0, 10))}</td>
+              <td>${escapeHtml(m.journalNo)}</td>
+              <td>${escapeHtml(m.description ?? '')}</td>
+              <td>${escapeHtml(m.accountCode)} — ${escapeHtml(m.accountName)}</td>
+              <td>${m.direction === 'penerimaan' ? 'Masuk' : 'Keluar'}</td>
+              <td class="num">${formatIDR(m.amount)}</td>
+              <td class="num">${formatIDR(m.runningBalance)}</td>
+            </tr>`,
+                )
+                .join('')
+            : '<tr><td colspan="7" style="text-align:center;color:#6b7280">Tidak ada mutasi di periode ini</td></tr>'
+        }
+      </tbody>
+    </table>`;
 }

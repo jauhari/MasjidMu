@@ -121,6 +121,8 @@ export const funds = pgTable(
 );
 
 // ─── Transaction Categories (link kategori → COA mapping) ──────────────────
+// Optional defaultFundId: one-tap template for LAZ programs (e.g. "Infaq PAP"
+// → debit Kas PAP, credit Infaq, fund PAP 2026).
 export const transactionCategories = pgTable(
   'transaction_categories',
   {
@@ -133,6 +135,7 @@ export const transactionCategories = pgTable(
     direction: transactionDirectionEnum().notNull(),
     debitAccountId: uuid().references(() => accounts.id),
     creditAccountId: uuid().references(() => accounts.id),
+    defaultFundId: uuid().references(() => funds.id, { onDelete: 'set null' }),
     isActive: boolean().default(true).notNull(),
     createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),

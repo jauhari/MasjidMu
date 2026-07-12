@@ -12,7 +12,8 @@
  * Keuangan, Neraca Saldo, Buku Besar, Jurnal Umum) tanda minus hanyalah arah
  * saldo — bukan "masalah" — sehingga warnanya di-override netral di sana.
  */
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onActivated, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import {
   AlertTriangle,
   Download,
@@ -43,6 +44,7 @@ type ReportType =
   | 'trial-balance'
   | 'jurnal-umum'
   | 'sumber-penggunaan-dana'
+  | 'buku-dana'
   | 'konsolidasi-dana';
 
 const REPORTS: { value: ReportType; label: string }[] = [
@@ -51,6 +53,7 @@ const REPORTS: { value: ReportType; label: string }[] = [
   { value: 'perubahan-aset-neto', label: 'Perubahan Aset Neto' },
   { value: 'arus-kas', label: 'Arus Kas' },
   { value: 'sumber-penggunaan-dana', label: 'Sumber & Penggunaan Dana' },
+  { value: 'buku-dana', label: 'Buku Dana (detail 1 dana)' },
   { value: 'konsolidasi-dana', label: 'Konsolidasi Dana (Multi-Cabang)' },
   { value: 'general-ledger', label: 'Buku Besar' },
   { value: 'trial-balance', label: 'Neraca Saldo' },
@@ -64,6 +67,8 @@ const periodModeOptions = [
   { value: 'custom', label: 'Custom' },
 ];
 
+const route = useRoute();
+const router = useRouter();
 const now = new Date();
 const reportType = ref<ReportType>('posisi-keuangan');
 const month = ref(now.getMonth() + 1);
@@ -71,12 +76,82 @@ const year = ref(now.getFullYear());
 const periodMode = ref<'monthly' | 'custom'>('monthly');
 const dateFrom = ref<string | null>(null);
 const dateTo = ref<string | null>(null);
+const fundId = ref<string>('');
+const fundOptions = ref<{ value: string; label: string }[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const data = ref<any>(null);
 const periodLabel = ref<string>('');
+/** Hindari double-load saat apply query + watch. */
+const suppressWatchLoad = ref(false);
+
+const REPORT_TYPE_SET = new Set(REPORTS.map((r) => r.value));
+
+function qStr(key: string): string | undefined {
+  const v = route.query[key];
+  if (Array.isArray(v)) return v[0] || undefined;
+  return typeof v === 'string' && v.length ? v : undefined;
+}
+
+/** Deep-link dari dashboard (kartu dana) / bookmark: ?type=&fundId=&month=&year= */
+function applyRouteQuery(): boolean {
+  let changed = false;
+  const typeQ = qStr('type');
+  if (typeQ && REPORT_TYPE_SET.has(typeQ as ReportType) && reportType.value !== typeQ) {
+    reportType.value = typeQ as ReportType;
+    changed = true;
+  }
+  const mQ = qStr('month');
+  if (mQ) {
+    const m = Number(mQ);
+    if (m >= 1 && m <= 12 && month.value !== m) {
+      month.value = m;
+      changed = true;
+    }
+  }
+  const yQ = qStr('year');
+  if (yQ) {
+    const y = Number(yQ);
+    if (y >= 2000 && y <= 2100 && year.value !== y) {
+      year.value = y;
+      changed = true;
+    }
+  }
+  const fQ = qStr('fundId');
+  if (fQ && fundId.value !== fQ) {
+    fundId.value = fQ;
+    changed = true;
+  }
+  return changed;
+}
+
+async function loadFunds(): Promise<void> {
+  try {
+    const res = await api.get<{ data: Array<{ id: string; code: string; name: string }> }>(
+      '/api/v1/funds',
+    );
+    fundOptions.value = res.data.map((f) => ({
+      value: f.id,
+      label: `${f.code} — ${f.name}`,
+    }));
+    // Prefer query fundId; else keep current; else first fund
+    const fromQuery = qStr('fundId');
+    if (fromQuery && fundOptions.value.some((o) => o.value === fromQuery)) {
+      fundId.value = fromQuery;
+    } else if (!fundId.value && fundOptions.value[0]) {
+      fundId.value = fundOptions.value[0].value;
+    }
+  } catch {
+    fundOptions.value = [];
+  }
+}
 
 async function load(): Promise<void> {
+  if (reportType.value === 'buku-dana' && !fundId.value) {
+    data.value = null;
+    error.value = 'Pilih dana terlebih dahulu untuk Buku Dana';
+    return;
+  }
   loading.value = true;
   error.value = null;
   try {
@@ -84,6 +159,9 @@ async function load(): Promise<void> {
       periodMode.value === 'custom'
         ? { startDate: dateFrom.value || undefined, endDate: dateTo.value || undefined }
         : { month: month.value, year: year.value };
+    if (reportType.value === 'buku-dana') {
+      query.fundId = fundId.value;
+    }
     const path =
       reportType.value === 'konsolidasi-dana'
         ? '/api/v1/reports/konsolidasi/sumber-penggunaan-dana'
@@ -92,8 +170,8 @@ async function load(): Promise<void> {
     data.value = res.data;
     periodLabel.value = res.period?.label ?? `${month.value}/${year.value}`;
   } catch (err) {
-    const e = err as { body?: { error?: string } };
-    error.value = e.body?.error ?? (err as Error).message;
+    const e = err as { body?: { error?: string; detail?: string } };
+    error.value = e.body?.detail ?? e.body?.error ?? (err as Error).message;
     data.value = null;
   } finally {
     loading.value = false;
@@ -109,6 +187,9 @@ function downloadUrl(format: 'pdf' | 'xlsx'): string {
   } else {
     params.set('month', String(month.value));
     params.set('year', String(year.value));
+  }
+  if (reportType.value === 'buku-dana' && fundId.value) {
+    params.set('fundId', fundId.value);
   }
   if (tenant) params.set('tenant_slug', tenant);
   const path =
@@ -155,11 +236,62 @@ const trialBalanceDiff = computed(() => {
   return Math.abs(Number(data.value.totalDebit ?? 0) - Number(data.value.totalCredit ?? 0));
 });
 
-watch([reportType, month, year, periodMode, dateFrom, dateTo], () => {
+watch([reportType, month, year, periodMode, dateFrom, dateTo, fundId], () => {
+  if (suppressWatchLoad.value) return;
   data.value = null;
-  load();
+  void load();
+  // Sinkronkan URL supaya shareable / back-button ramah
+  const nextQuery: Record<string, string> = {
+    type: reportType.value,
+    month: String(month.value),
+    year: String(year.value),
+  };
+  if (reportType.value === 'buku-dana' && fundId.value) {
+    nextQuery.fundId = fundId.value;
+  }
+  const cur = route.query;
+  const same =
+    cur.type === nextQuery.type &&
+    cur.month === nextQuery.month &&
+    cur.year === nextQuery.year &&
+    (nextQuery.fundId ? cur.fundId === nextQuery.fundId : !cur.fundId);
+  if (!same) {
+    void router.replace({ query: nextQuery });
+  }
 });
-onMounted(load);
+
+async function bootReports(): Promise<void> {
+  suppressWatchLoad.value = true;
+  try {
+    applyRouteQuery();
+    await loadFunds();
+    applyRouteQuery();
+  } finally {
+    suppressWatchLoad.value = false;
+  }
+  await load();
+}
+
+onMounted(() => {
+  void bootReports();
+});
+
+// KeepAlive: masuk lagi dari dashboard dengan query baru
+onActivated(() => {
+  const changed = applyRouteQuery();
+  if (changed || !data.value) {
+    void load();
+  }
+});
+
+watch(
+  () => [route.query.type, route.query.fundId, route.query.month, route.query.year],
+  () => {
+    if (suppressWatchLoad.value) return;
+    const changed = applyRouteQuery();
+    if (changed) void load();
+  },
+);
 </script>
 
 <template>
@@ -203,6 +335,15 @@ onMounted(load);
           <DatePicker v-model="dateFrom" placeholder="Dari tgl" />
           <span class="text-xs text-muted-foreground">s/d</span>
           <DatePicker v-model="dateTo" placeholder="Sampai tgl" />
+        </template>
+        <template v-if="reportType === 'buku-dana'">
+          <span class="mx-0.5 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
+          <div class="w-full max-w-[260px]">
+            <AppSelect
+              v-model="fundId"
+              :options="fundOptions.length ? fundOptions : [{ value: '', label: '— Belum ada dana —' }]"
+            />
+          </div>
         </template>
       </CardContent>
     </Card>
@@ -766,7 +907,103 @@ onMounted(load);
             </tr>
           </tbody>
         </Table>
-        <p class="mt-3 text-xs text-muted-foreground">* dana terikat syariah (mis. zakat, wakaf) — penggunaan dibatasi.</p>
+        <p class="mt-3 text-xs text-muted-foreground">* dana terikat syariah (mis. zakat, wakaf) — penggunaan dibatasi. Untuk rincian 1 dana (masuk/keluar), pilih laporan <strong>Buku Dana</strong>.</p>
+
+      <!-- Buku Dana — detail 1 dana (mis. Infaq Rutin PAP) -->
+      </template>
+      <template v-else-if="reportType === 'buku-dana'">
+        <div class="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h3 class="text-base font-bold text-foreground">{{ data.fundName }}</h3>
+            <p class="text-xs text-muted-foreground">
+              Kode {{ data.fundCode }}
+              <span v-if="data.isRestricted"> · terikat</span>
+            </p>
+          </div>
+        </div>
+
+        <div class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div class="rounded-2xl border bg-card p-3.5">
+            <p class="text-[11px] font-medium text-muted-foreground">Saldo Awal</p>
+            <MoneyText :value="data.openingBalance" class="mt-0.5 block text-lg font-extrabold text-foreground" />
+          </div>
+          <div class="rounded-2xl border bg-card p-3.5">
+            <p class="text-[11px] font-medium text-muted-foreground">Penerimaan (masuk)</p>
+            <MoneyText :value="data.totalPenerimaan" tone="income" class="mt-0.5 block text-lg font-extrabold" />
+          </div>
+          <div class="rounded-2xl border bg-card p-3.5">
+            <p class="text-[11px] font-medium text-muted-foreground">Penyaluran (keluar)</p>
+            <MoneyText :value="data.totalPenyaluran" tone="expense" class="mt-0.5 block text-lg font-extrabold" />
+          </div>
+          <div class="rounded-2xl border bg-card p-3.5">
+            <p class="text-[11px] font-medium text-muted-foreground">Saldo Akhir</p>
+            <MoneyText :value="data.closingBalance" class="mt-0.5 block text-lg font-extrabold text-foreground" />
+          </div>
+        </div>
+
+        <Table>
+          <thead>
+            <tr class="border-b border-border bg-muted/50">
+              <th class="rounded-l-lg px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tanggal</th>
+              <th class="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Keterangan</th>
+              <th class="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Akun</th>
+              <th class="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Arah</th>
+              <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Jumlah</th>
+              <th class="rounded-r-lg px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Saldo</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="!data.movements?.length">
+              <td colspan="6" class="px-3 py-8 text-center text-xs italic text-muted-foreground">
+                Belum ada mutasi di periode ini. Pastikan saat input transaksi kolom <strong>Dana</strong> diisi.
+              </td>
+            </tr>
+            <tr
+              v-for="(m, i) in data.movements"
+              :key="m.journalId + m.accountCode + i"
+              class="border-b border-border/60 transition-colors"
+              :class="[
+                i % 2 === 1 ? 'bg-muted/20' : '',
+                m.transactionId ? 'cursor-pointer hover:bg-emerald-50/50' : '',
+              ]"
+              :title="m.transactionId ? 'Buka detail transaksi' : undefined"
+              @click="m.transactionId && router.push({ path: '/transactions', query: { open: m.transactionId } })"
+            >
+              <td class="px-3 py-2 text-sm tabular-nums text-muted-foreground">
+                {{ String(m.journalDate).slice(0, 10) }}
+              </td>
+              <td class="px-3 py-2 text-sm text-foreground">
+                <p class="font-medium">{{ m.description || m.journalNo }}</p>
+                <p class="text-[11px] text-muted-foreground">
+                  {{ m.transactionNo || m.journalNo }}
+                </p>
+              </td>
+              <td class="px-3 py-2 text-sm text-muted-foreground">
+                {{ m.accountCode }} — {{ m.accountName }}
+              </td>
+              <td class="px-3 py-2 text-sm">
+                <span
+                  class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                  :class="m.direction === 'penerimaan'
+                    ? 'bg-emerald-50 text-emerald-800'
+                    : 'bg-amber-50 text-amber-900'"
+                >
+                  {{ m.direction === 'penerimaan' ? 'Masuk' : 'Keluar' }}
+                </span>
+              </td>
+              <td class="px-3 py-2 text-right text-sm">
+                <MoneyText
+                  :value="m.amount"
+                  :tone="m.direction === 'penerimaan' ? 'income' : 'expense'"
+                  class="font-semibold"
+                />
+              </td>
+              <td class="px-3 py-2 text-right text-sm font-medium">
+                <MoneyText :value="m.runningBalance" class="text-foreground" />
+              </td>
+            </tr>
+          </tbody>
+        </Table>
       </template>
 
       <!-- Konsolidasi Dana Multi-Cabang (PSAK 109) -->

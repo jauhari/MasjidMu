@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
+import { format } from 'date-fns';
+import { id as localeId } from 'date-fns/locale';
 import MobileBottomNav from './MobileBottomNav.vue';
 import MobileFab from './MobileFab.vue';
 import MobileMoreSheet from './MobileMoreSheet.vue';
@@ -145,6 +147,20 @@ const userInitial = computed(() =>
   (auth.user?.name ?? auth.user?.email ?? '?').slice(0, 1).toUpperCase(),
 );
 
+const todayLabel = format(new Date(), 'EEEE, d MMM yyyy', { locale: localeId });
+
+const pageTitle = computed(() => {
+  if (route.path.startsWith('/transactions/import')) return 'Impor Transaksi';
+  const all: NavItem[] = [
+    ...mainItems,
+    ...financeItems.value,
+    ...otherItems,
+    ...adminItems,
+    { to: '/changelog', label: 'Changelog', icon: ScrollText },
+  ];
+  return all.find((i) => isActive(i.to))?.label ?? 'Dashboard';
+});
+
 function isActive(path: string): boolean {
   if (path === '/') return route.path === '/';
   return route.path === path || route.path.startsWith(`${path}/`);
@@ -159,14 +175,17 @@ async function onSignOut(): Promise<void> {
 <template>
   <SidebarProvider>
     <Sidebar collapsible="icon" class="border-r border-sidebar-border">
-      <SidebarHeader class="border-b border-sidebar-border px-3 py-3">
-        <div class="flex items-center gap-2.5">
-          <div class="grid size-8 shrink-0 place-items-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground text-sm font-bold">
-            H
+      <SidebarHeader class="relative flex h-14 shrink-0 flex-row items-center overflow-hidden border-b border-sidebar-border p-0 px-3">
+        <div aria-hidden="true" class="pointer-events-none absolute -left-14 -top-16 size-52 rounded-full bg-sidebar-primary/25 blur-3xl"></div>
+        <div class="relative flex items-center gap-2.5">
+          <div class="relative size-8 shrink-0">
+            <div class="absolute inset-1 rounded-md bg-sidebar-primary"></div>
+            <div class="absolute inset-1 rotate-45 rounded-md bg-amber-400 opacity-90"></div>
+            <div class="absolute inset-[9px] rotate-45 rounded-sm bg-sidebar"></div>
           </div>
-          <div class="flex flex-col group-data-[collapsible=icon]:hidden">
+          <div class="flex flex-col leading-tight group-data-[collapsible=icon]:hidden">
             <span class="text-sm font-semibold text-sidebar-foreground">HisabMu</span>
-            <span class="text-xs text-sidebar-foreground/60">Keuangan Nirlaba</span>
+            <span class="text-[11px] text-sidebar-foreground/60">Keuangan Nirlaba</span>
           </div>
         </div>
       </SidebarHeader>
@@ -268,21 +287,23 @@ async function onSignOut(): Promise<void> {
     </Sidebar>
 
     <SidebarInset>
-      <header class="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur-md">
+      <header class="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2.5 border-b border-border/70 bg-background/80 px-4 backdrop-blur-xl">
         <SidebarTrigger class="-ml-1" />
-        <Separator orientation="vertical" class="mr-2 h-4" />
-        <div class="flex-1 truncate">
-          <p class="text-sm font-semibold text-foreground md:hidden">HisabMu</p>
-          <div v-if="auth.isSuperAdmin" class="hidden md:flex">
-            <TenantSwitcher />
-          </div>
-          <p v-else class="hidden text-sm text-muted-foreground md:block">{{ auth.user?.email }}</p>
+        <Separator orientation="vertical" class="h-4" />
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-bold tracking-tight text-foreground">{{ pageTitle }}</p>
+        </div>
+        <span class="hidden items-center gap-1.5 rounded-full border border-border/70 bg-card px-3 py-1 text-[11px] font-medium capitalize text-muted-foreground shadow-xs lg:inline-flex">
+          <CalendarDays class="size-3 text-primary" /> {{ todayLabel }}
+        </span>
+        <div v-if="auth.isSuperAdmin" class="hidden md:block">
+          <TenantSwitcher />
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
             <button
               type="button"
-              class="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground hover:bg-accent transition-colors"
+              class="flex size-8 items-center justify-center rounded-[10px] bg-gradient-to-br from-[#D9A93F] to-[#B8862A] text-xs font-extrabold text-[#0C231B] shadow-sm ring-1 ring-black/5 transition-transform hover:scale-105"
             >
               {{ userInitial }}
             </button>

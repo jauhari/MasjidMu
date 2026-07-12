@@ -11,11 +11,77 @@
 export type ApiError = Error & { status: number; body: unknown };
 
 export function formatApiError(err: unknown, fallback = 'Terjadi kesalahan'): string {
-  const e = err as { body?: { error?: string }; message?: string; name?: string };
+  const e = err as {
+    body?: {
+      error?: string | { name?: string; message?: string; issues?: Array<{ path?: (string | number)[]; message?: string }> };
+      detail?: string;
+      success?: boolean;
+    };
+    message?: string;
+    name?: string;
+  };
   if (e?.name === 'TimeoutError' || e?.message?.toLowerCase().includes('timed out')) {
     return 'Koneksi ke server terlalu lama. Pastikan backend berjalan di port 3001, lalu muat ulang.';
   }
-  return e?.body?.error ?? e?.message ?? fallback;
+
+  const body = e?.body;
+  if (body?.detail && typeof body.detail === 'string') return body.detail;
+
+  const errField = body?.error;
+  if (typeof errField === 'string') {
+    // Kadang backend kirim JSON string / ZodError.message berisi array issues
+    try {
+      const parsed = JSON.parse(errField) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((i: { path?: (string | number)[]; message?: string }) => {
+            const p = i.path?.length ? `${i.path.join('.')}: ` : '';
+            return `${p}${i.message ?? 'invalid'}`;
+          })
+          .join(' · ');
+      }
+    } catch {
+      /* plain string */
+    }
+    // Jangan tampilkan blob ZodError mentah ke user
+    if (errField.includes('ZodError') || errField.includes('"too_small"')) {
+      return 'Data form tidak valid. Periksa kode, nama, dan field wajib.';
+    }
+    return errField;
+  }
+
+  if (errField && typeof errField === 'object') {
+    const issues = errField.issues;
+    if (Array.isArray(issues) && issues.length > 0) {
+      return issues
+        .map((i) => {
+          const p = i.path?.length ? `${i.path.join('.')}: ` : '';
+          return `${p}${i.message ?? 'invalid'}`;
+        })
+        .join(' · ');
+    }
+    if (typeof errField.message === 'string') {
+      try {
+        const parsed = JSON.parse(errField.message) as Array<{
+          path?: (string | number)[];
+          message?: string;
+        }>;
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map((i) => {
+              const p = i.path?.length ? `${i.path.join('.')}: ` : '';
+              return `${p}${i.message ?? 'invalid'}`;
+            })
+            .join(' · ');
+        }
+      } catch {
+        if (!errField.message.includes('"too_small"')) return errField.message;
+      }
+      return 'Data form tidak valid. Periksa kode, nama, dan field wajib.';
+    }
+  }
+
+  return e?.message ?? fallback;
 }
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {

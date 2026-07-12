@@ -2,8 +2,8 @@
  * Transaction categories — links a user-friendly category (e.g. "Infaq Jumat",
  * "Beban Listrik") to a debit/credit COA pair plus direction (income/expense).
  *
- * When a transaction is posted, the journal lines are auto-generated using
- * this category's debit_account_id and credit_account_id.
+ * Optional defaultFundId (PSAK 109): picking the category in the TX form also
+ * tags lines with that fund (e.g. "Infaq PAP" → fund PAP 2026).
  *
  * Both accounts must belong to the same tenant (enforced via RLS — anything
  * else returns 0 rows and triggers FK violation).
@@ -13,7 +13,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, eq, isNull } from 'drizzle-orm';
 import { withTenant } from '../../../db/client.js';
-import { accounts, transactionCategories } from '../../../db/schema/accounting.js';
+import { accounts, funds, transactionCategories } from '../../../db/schema/accounting.js';
 import { auditInterceptor } from '../../../lib/audit.js';
 import { requireSession, type SessionVars } from '../../../middleware/session.js';
 import { requireTenant, type TenantVars } from '../../../middleware/tenant.js';
@@ -63,18 +63,19 @@ const createSchema = refineDirectionAccounts(
     direction: directionEnum,
     debitAccountId: z.string().uuid().nullable().optional(),
     creditAccountId: z.string().uuid().nullable().optional(),
+    defaultFundId: z.string().uuid().nullable().optional(),
     isActive: z.boolean().optional(),
   }),
 );
 
-const updateSchema = z
-  .object({
-    name: z.string().min(1).max(200).optional(),
-    direction: directionEnum.optional(),
-    debitAccountId: z.string().uuid().nullable().optional(),
-    creditAccountId: z.string().uuid().nullable().optional(),
-    isActive: z.boolean().optional(),
-  });
+const updateSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  direction: directionEnum.optional(),
+  debitAccountId: z.string().uuid().nullable().optional(),
+  creditAccountId: z.string().uuid().nullable().optional(),
+  defaultFundId: z.string().uuid().nullable().optional(),
+  isActive: z.boolean().optional(),
+});
 
 async function assertAccountsExist(
   tenantId: string,
@@ -98,6 +99,27 @@ async function assertAccountsExist(
     if (debitId && !ids.has(debitId)) missing.push('debit');
     if (creditId && !ids.has(creditId)) missing.push('credit');
     return missing.length === 0 ? { ok: true as const } : { ok: false as const, missing };
+  });
+}
+
+async function assertFundExists(
+  tenantId: string,
+  fundId: string | null | undefined,
+): Promise<boolean> {
+  if (!fundId) return true;
+  return withTenant(tenantId, async (tx) => {
+    const rows = await tx
+      .select({ id: funds.id })
+      .from(funds)
+      .where(
+        and(
+          eq(funds.id, fundId),
+          eq(funds.tenantId, tenantId),
+          isNull(funds.deletedAt),
+          eq(funds.isActive, true),
+        ),
+      );
+    return !!rows[0];
   });
 }
 
@@ -131,6 +153,9 @@ export const transactionCategoriesRoute = new Hono<{
     );
     if (!accountCheck.ok) {
       return c.json({ error: 'invalid_accounts', missing: accountCheck.missing }, 422);
+    }
+    if (!(await assertFundExists(tenantId, body.defaultFundId))) {
+      return c.json({ error: 'invalid_fund', missing: ['defaultFund'] }, 422);
     }
 
     const created = await withTenant(tenantId, async (tx) => {
@@ -214,6 +239,12 @@ export const transactionCategoriesRoute = new Hono<{
         if (!accountCheck.ok) {
           return c.json({ error: 'invalid_accounts', missing: accountCheck.missing }, 422);
         }
+      }
+      if (
+        body.defaultFundId !== undefined &&
+        !(await assertFundExists(tenantId, body.defaultFundId))
+      ) {
+        return c.json({ error: 'invalid_fund', missing: ['defaultFund'] }, 422);
       }
 
       const updated = await withTenant(tenantId, async (tx) => {

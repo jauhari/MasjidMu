@@ -1,8 +1,11 @@
 <script setup lang="ts">
+/**
+ * Picker akun COA — daftar INLINE (bukan portal/fixed).
+ * Aman di dalam Modal: klik pasti ke-handle, tidak diblok Dialog dismiss layer.
+ * Hanya akun LEAF (postable) yang ditampilkan.
+ */
 import { computed, ref, watch, nextTick } from 'vue';
 import { Search, ChevronsUpDown, Check, X, Sparkles } from 'lucide-vue-next';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface Account {
@@ -55,18 +58,36 @@ const TYPE_COLOR: Record<string, string> = {
   contra_liability: 'bg-amber-50 text-amber-700 border-amber-200',
 };
 
-const leafAccounts = computed<Account[]>(() => {
-  const hasChildren = new Set(
-    props.accounts.filter((a) => a.parentId).map((a) => a.parentId!),
+/** Hanya leaf — head COA tidak postable. */
+const postableAccounts = computed<Account[]>(() => {
+  const parentIds = new Set(
+    props.accounts.map((a) => a.parentId).filter((id): id is string => !!id),
   );
-  return props.accounts.filter((a) => a.isActive !== false && !hasChildren.has(a.id));
+  return props.accounts
+    .filter((a) => a.isActive !== false && !parentIds.has(a.id))
+    .slice()
+    .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 });
+
+const accountById = computed(() => new Map(props.accounts.map((a) => [a.id, a])));
+
+function parentPath(account: Account): string {
+  const parts: string[] = [];
+  let pid = account.parentId;
+  let guard = 0;
+  while (pid && guard++ < 6) {
+    const p = accountById.value.get(pid);
+    if (!p) break;
+    parts.unshift(p.name);
+    pid = p.parentId;
+  }
+  return parts.length ? parts.join(' › ') : '';
+}
 
 function scoreAccount(account: Account, q: string): number {
   const ql = q.toLowerCase();
   const code = account.code.toLowerCase();
   const name = account.name.toLowerCase();
-
   if (code === ql) return 100;
   if (name === ql) return 90;
   if (code.startsWith(ql)) return 80;
@@ -74,45 +95,31 @@ function scoreAccount(account: Account, q: string): number {
   if (code.includes(ql)) return 60;
   if (name.includes(ql)) return 50;
   if (`${code} ${name}`.includes(ql)) return 40;
-
-  const fuzzy = fuzzyMatch(ql, `${code} ${name}`);
-  return fuzzy > 0 ? 20 + fuzzy : 0;
-}
-
-function fuzzyMatch(pattern: string, str: string): number {
-  let score = 0;
-  let pi = 0;
-  for (let si = 0; si < str.length && pi < pattern.length; si++) {
-    if (str[si] === pattern[pi]) {
-      score++;
-      pi++;
-    }
-  }
-  return pi === pattern.length ? score : 0;
+  return 0;
 }
 
 const suggested = computed<Account | null>(() => {
   if (!props.suggestedAccountId) return null;
-  return leafAccounts.value.find((a) => a.id === props.suggestedAccountId) ?? null;
+  return postableAccounts.value.find((a) => a.id === props.suggestedAccountId) ?? null;
 });
 
 const filtered = computed<Account[]>(() => {
   const q = query.value.trim();
   if (!q) {
-    // No query: show suggested first, then the rest
-    const rest = leafAccounts.value.filter((a) => a.id !== props.suggestedAccountId);
-    return suggested.value ? [suggested.value, ...rest] : leafAccounts.value;
+    const rest = postableAccounts.value.filter((a) => a.id !== props.suggestedAccountId);
+    return suggested.value ? [suggested.value, ...rest] : postableAccounts.value;
   }
-  return leafAccounts.value
+  return postableAccounts.value
     .map((a) => ({ account: a, score: scoreAccount(a, q) }))
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)
     .map((x) => x.account);
 });
 
-const selected = computed<Account | null>(
-  () => leafAccounts.value.find((a) => a.id === props.modelValue) ?? null,
-);
+const selected = computed<Account | null>(() => {
+  if (!props.modelValue) return null;
+  return props.accounts.find((a) => a.id === props.modelValue) ?? null;
+});
 
 function select(account: Account): void {
   emit('update:modelValue', account.id);
@@ -121,19 +128,33 @@ function select(account: Account): void {
   focusedIdx.value = -1;
 }
 
-watch(open, (v) => {
+function toggle(): void {
+  if (props.disabled) return;
+  open.value = !open.value;
+}
+
+function close(): void {
+  open.value = false;
+  query.value = '';
+  focusedIdx.value = -1;
+}
+
+watch(open, async (v) => {
   if (v) {
     query.value = '';
     focusedIdx.value = -1;
-    nextTick(() => searchInput.value?.focus());
+    await nextTick();
+    searchInput.value?.focus();
   }
 });
 
-watch(query, () => {
-  focusedIdx.value = -1;
-});
-
 function onKeydown(e: KeyboardEvent): void {
+  if (!open.value && (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ')) {
+    e.preventDefault();
+    open.value = true;
+    return;
+  }
+  if (!open.value) return;
   const list = filtered.value;
   if (e.key === 'ArrowDown') {
     e.preventDefault();
@@ -146,7 +167,8 @@ function onKeydown(e: KeyboardEvent): void {
     const account = list[focusedIdx.value];
     if (account) select(account);
   } else if (e.key === 'Escape') {
-    open.value = false;
+    e.preventDefault();
+    close();
   }
 }
 
@@ -163,126 +185,131 @@ function highlightParts(text: string, q: string): HighlightPart[] {
 </script>
 
 <template>
-  <Popover v-model:open="open">
-    <PopoverTrigger as-child>
-      <Button
-        variant="outline"
-        role="combobox"
-        :disabled="disabled"
-        :class="cn('w-full justify-between font-normal h-9 px-3', !selected && 'text-muted-foreground')"
-      >
-        <span v-if="selected" class="flex items-center gap-2 min-w-0 flex-1">
-          <span class="font-mono text-[11px] text-muted-foreground shrink-0 leading-none">{{ selected.code }}</span>
-          <span class="truncate text-sm">{{ selected.name }}</span>
-        </span>
-        <span v-else class="text-sm flex-1 text-left">{{ placeholder ?? '— Pilih akun —' }}</span>
-        <ChevronsUpDown class="size-3.5 shrink-0 opacity-40 ml-1" />
-      </Button>
-    </PopoverTrigger>
-
-    <PopoverContent
-      class="w-80 p-0 overflow-hidden"
-      align="start"
-      :side-offset="4"
-      :avoid-collisions="true"
+  <div class="w-full">
+    <!-- Trigger -->
+    <button
+      type="button"
+      role="combobox"
+      :aria-expanded="open"
+      :disabled="disabled"
+      :class="
+        cn(
+          'border-input bg-background hover:bg-muted/40 flex h-9 w-full items-center justify-between rounded-md border px-3 text-left text-sm shadow-xs transition-colors',
+          'focus-visible:border-ring focus-visible:ring-ring/40 outline-none focus-visible:ring-2',
+          !selected && 'text-muted-foreground',
+          disabled && 'pointer-events-none opacity-50',
+          open && 'border-ring ring-ring/30 ring-2',
+        )
+      "
+      @click="toggle"
+      @keydown="onKeydown"
     >
-      <!-- Search bar -->
-      <div class="flex items-center gap-2 border-b px-3 py-2">
-        <Search class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span v-if="selected" class="flex min-w-0 flex-1 items-center gap-2">
+        <span class="shrink-0 font-mono text-[11px] leading-none text-muted-foreground">
+          {{ selected.code }}
+        </span>
+        <span class="truncate">{{ selected.name }}</span>
+      </span>
+      <span v-else class="flex-1 truncate">{{ placeholder ?? 'Pilih akun…' }}</span>
+      <ChevronsUpDown class="ml-1 size-3.5 shrink-0 opacity-40" />
+    </button>
+
+    <!-- Panel INLINE — di dalam DOM form, bukan portal -->
+    <div
+      v-if="open"
+      class="bg-popover text-popover-foreground mt-1 flex max-h-56 flex-col overflow-hidden rounded-lg border border-border shadow-md"
+      role="listbox"
+    >
+      <div class="flex shrink-0 items-center gap-2 border-b px-2.5 py-1.5">
+        <Search class="size-3.5 shrink-0 text-muted-foreground" />
         <input
           ref="searchInput"
           v-model="query"
-          class="flex-1 text-sm bg-transparent outline-none placeholder:text-muted-foreground/60 py-0.5"
-          placeholder="Ketik kode atau nama akun…"
+          class="min-w-0 flex-1 bg-transparent py-0.5 text-sm outline-none placeholder:text-muted-foreground/60"
+          placeholder="Cari kode / nama…"
           autocomplete="off"
           @keydown="onKeydown"
+          @click.stop
         />
         <button
           v-if="query"
-          class="text-muted-foreground hover:text-foreground transition-colors"
+          type="button"
+          class="text-muted-foreground hover:text-foreground"
           tabindex="-1"
           @click="query = ''; searchInput?.focus()"
         >
-          <X class="h-3.5 w-3.5" />
+          <X class="size-3.5" />
         </button>
       </div>
 
-      <!-- Result list -->
-      <div class="max-h-72 overflow-y-auto scroll-py-1 py-1">
-        <!-- Suggested banner (only when no query and suggestion exists) -->
-        <div v-if="!query && suggested" class="px-2 mb-1">
-          <p class="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground px-1.5 py-1">
-            <Sparkles class="h-3 w-3 text-amber-500" />
-            Disarankan dari kategori
+      <div class="min-h-0 flex-1 overflow-y-auto py-0.5">
+        <div v-if="!query && suggested" class="px-2 pt-1">
+          <p class="flex items-center gap-1 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <Sparkles class="size-3 text-amber-500" />
+            Disarankan
           </p>
         </div>
 
-        <!-- Empty -->
-        <p v-if="filtered.length === 0" class="text-center text-sm text-muted-foreground py-8">
-          Akun tidak ditemukan.
+        <p
+          v-if="filtered.length === 0"
+          class="px-3 py-5 text-center text-xs text-muted-foreground"
+        >
+          {{
+            postableAccounts.length === 0
+              ? 'Belum ada akun leaf. Buat sub-akun di Bagan Akun.'
+              : 'Tidak ketemu.'
+          }}
         </p>
 
-        <!-- Items -->
-        <template v-else>
-          <div
-            v-for="(account, i) in filtered"
-            :key="account.id"
-          >
-            <!-- Divider after suggested item when no query -->
-            <div
-              v-if="!query && suggested && i === 1"
-              class="mx-2 my-1 border-t"
-            />
-            <button
-              class="w-full flex items-center gap-2 rounded-md mx-1 px-2 py-1.5 text-left transition-colors"
-              :class="[
-                focusedIdx === i ? 'bg-accent' : 'hover:bg-accent/60',
-                selected?.id === account.id ? 'bg-accent' : '',
-              ]"
-              style="width: calc(100% - 0.5rem)"
-              @click="select(account)"
-              @mouseenter="focusedIdx = i"
+        <button
+          v-for="(account, i) in filtered"
+          :key="account.id"
+          type="button"
+          role="option"
+          class="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors"
+          :class="
+            focusedIdx === i || selected?.id === account.id
+              ? 'bg-accent'
+              : 'hover:bg-muted/70'
+          "
+          @click="select(account)"
+          @mouseenter="focusedIdx = i"
+        >
+          <span class="w-14 shrink-0 font-mono text-[11px] text-muted-foreground">
+            {{ account.code }}
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm">
+              <template v-for="(part, pi) in highlightParts(account.name, query)" :key="pi">
+                <mark
+                  v-if="part.match"
+                  class="rounded-[2px] bg-amber-100 px-px font-medium text-amber-900 not-italic"
+                  >{{ part.text }}</mark
+                >
+                <span v-else>{{ part.text }}</span>
+              </template>
+            </span>
+            <span
+              v-if="parentPath(account)"
+              class="block truncate text-[10px] text-muted-foreground/75"
             >
-              <!-- Code -->
-              <span class="font-mono text-[11px] text-muted-foreground w-12 shrink-0 leading-none">
-                {{ account.code }}
-              </span>
-              <!-- Name with highlight -->
-              <span class="flex-1 text-sm leading-snug min-w-0">
-                <template v-for="(part, pi) in highlightParts(account.name, query)" :key="pi">
-                  <mark
-                    v-if="part.match"
-                    class="bg-amber-100 text-amber-900 rounded-[2px] not-italic font-medium px-px"
-                  >{{ part.text }}</mark>
-                  <span v-else>{{ part.text }}</span>
-                </template>
-              </span>
-              <!-- Type badge -->
-              <span
-                class="text-[9px] font-medium px-1.5 py-0.5 rounded border shrink-0 leading-none"
-                :class="TYPE_COLOR[account.accountType] ?? 'bg-muted text-muted-foreground border-border'"
-              >
-                {{ TYPE_LABEL[account.accountType] ?? account.accountType }}
-              </span>
-              <!-- Check if selected -->
-              <Check
-                v-if="selected?.id === account.id"
-                class="h-3.5 w-3.5 text-primary shrink-0"
-              />
-            </button>
-          </div>
-        </template>
+              {{ parentPath(account) }}
+            </span>
+          </span>
+          <span
+            class="shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-medium leading-none"
+            :class="
+              TYPE_COLOR[account.accountType] ?? 'border-border bg-muted text-muted-foreground'
+            "
+          >
+            {{ TYPE_LABEL[account.accountType] ?? account.accountType }}
+          </span>
+          <Check
+            v-if="selected?.id === account.id"
+            class="size-3.5 shrink-0 text-primary"
+          />
+        </button>
       </div>
-
-      <!-- Footer hint -->
-      <div v-if="filtered.length > 0" class="border-t px-3 py-1.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-        <kbd class="rounded border border-border bg-muted px-1 py-px font-mono text-[9px]">↑↓</kbd>
-        <span>navigasi</span>
-        <kbd class="rounded border border-border bg-muted px-1 py-px font-mono text-[9px]">Enter</kbd>
-        <span>pilih</span>
-        <kbd class="rounded border border-border bg-muted px-1 py-px font-mono text-[9px]">Esc</kbd>
-        <span>tutup</span>
-      </div>
-    </PopoverContent>
-  </Popover>
+    </div>
+  </div>
 </template>

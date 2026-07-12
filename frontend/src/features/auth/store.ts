@@ -31,16 +31,41 @@ interface MeResponse {
     name: string | null;
     isSuperAdmin: boolean;
     permissions: string[];
+    tenant?: {
+      id: string;
+      slug: string;
+      name: string;
+      edition: string;
+    } | null;
   };
+}
+
+/** "lazismu-ponjong" → "Lazismu Ponjong" — fallback terakhir jika name kosong. */
+export function humanizeSlug(slug: string | null | undefined): string {
+  if (!slug) return '';
+  return slug
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
 }
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<AuthUser | null>(null);
   const tenantSlug = ref<string | null>(getTenantSlug());
+  /** Nama cantik lembaga dari DB (bukan slug). */
+  const tenantName = ref<string | null>(null);
+  const tenantEdition = ref<string | null>(null);
   const initialized = ref(false);
   const isAuthenticated = computed(() => user.value != null);
   const isSuperAdmin = ref(false);
   const permissions = ref<Set<string>>(new Set());
+
+  /** Label tampilan: tenantName → title-case slug → HisabMu */
+  const tenantDisplayName = computed(() => {
+    if (tenantName.value?.trim()) return tenantName.value.trim();
+    return humanizeSlug(tenantSlug.value) || 'HisabMu';
+  });
 
   function hasPermission(code: string): boolean {
     return isSuperAdmin.value || permissions.value.has(code);
@@ -51,9 +76,20 @@ export const useAuthStore = defineStore('auth', () => {
       const res = await api.get<MeResponse>('/api/v1/me');
       isSuperAdmin.value = res.data.isSuperAdmin;
       permissions.value = new Set(res.data.permissions);
+      if (res.data.tenant) {
+        tenantName.value = res.data.tenant.name || null;
+        tenantEdition.value = res.data.tenant.edition || null;
+        // Keep slug in sync if server resolved a different one
+        if (res.data.tenant.slug && res.data.tenant.slug !== tenantSlug.value) {
+          setTenantSlug(res.data.tenant.slug);
+          tenantSlug.value = res.data.tenant.slug;
+        }
+      }
     } catch {
       isSuperAdmin.value = false;
       permissions.value = new Set();
+      tenantName.value = null;
+      tenantEdition.value = null;
     }
   }
 
@@ -105,18 +141,24 @@ export const useAuthStore = defineStore('auth', () => {
       permissions.value = new Set();
       setTenantSlug(null);
       tenantSlug.value = null;
+      tenantName.value = null;
+      tenantEdition.value = null;
     }
   }
 
   return {
     user,
     tenantSlug,
+    tenantName,
+    tenantEdition,
+    tenantDisplayName,
     isAuthenticated,
     isSuperAdmin,
     permissions,
     initialized,
     hasPermission,
     init,
+    fetchMe,
     signIn,
     switchTenant,
     signOut,

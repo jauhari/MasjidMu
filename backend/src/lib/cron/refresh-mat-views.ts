@@ -22,23 +22,51 @@ const SCHEDULE = '*/17 * * * *';
 async function refreshOnce(): Promise<{ durationMs: number; cacheKeysDeleted: number }> {
   const start = Date.now();
   await asSuperAdmin(async (tx) => {
-    await tx.execute(sql`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_account_balances`);
-    await tx.execute(sql`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_monthly_summary`);
+    // CONCURRENTLY butuh unique index (ada di 050). Fallback non-concurrent
+    // jika concurrent gagal (mis. view kosong pertama kali / lock).
+    try {
+      await tx.execute(sql`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_account_balances`);
+      await tx.execute(sql`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_monthly_summary`);
+    } catch {
+      await tx.execute(sql`REFRESH MATERIALIZED VIEW mv_account_balances`);
+      await tx.execute(sql`REFRESH MATERIALIZED VIEW mv_monthly_summary`);
+    }
   });
 
   // Invalidate every report:* cache key — mat views just changed.
-  let cursor = '0';
-  let deleted = 0;
-  do {
-    const [next, keys] = await redis.scan(cursor, { match: 'report:*', count: 200 });
-    cursor = String(next);
-    if (keys.length > 0) {
-      await redis.del(...keys);
-      deleted += keys.length;
-    }
-  } while (cursor !== '0');
+  // Dev pakai memory-cache; production pakai Redis.
+  const { memClearPrefix } = await import('../memory-cache.js');
+  let deleted = memClearPrefix('report:');
+
+  try {
+    let cursor = '0';
+    do {
+      const [next, keys] = await redis.scan(cursor, { match: 'report:*', count: 200 });
+      cursor = String(next);
+      if (keys.length > 0) {
+        await redis.del(...keys);
+        deleted += keys.length;
+      }
+    } while (cursor !== '0');
+  } catch {
+    // Redis optional di dev
+  }
 
   return { durationMs: Date.now() - start, cacheKeysDeleted: deleted };
+}
+
+/**
+ * Dipanggil setelah transaksi di-posting agar dashboard/laporan langsung up-to-date
+ * (tanpa menunggu cron 17 menit / ENABLE_CRON).
+ */
+export async function refreshReportsAfterPosting(): Promise<void> {
+  try {
+    const r = await refreshOnce();
+    logger.info({ ...r }, 'mat-view refresh after posting');
+  } catch (err) {
+    // Jangan gagalkan posting hanya karena refresh MV gagal
+    logger.error({ err }, 'mat-view refresh after posting failed');
+  }
 }
 
 let task: cron.ScheduledTask | null = null;

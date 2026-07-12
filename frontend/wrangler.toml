@@ -1,0 +1,15 @@
+# Cloudflare Pages — HisabMu frontend (Vue SPA)
+# Deploy: from monorepo root after build
+#   pnpm --filter @masjidmu/frontend build
+#   pnpm deploy:cf
+#
+# Secrets / vars (Dashboard → Pages → Settings → Environment variables):
+#   API_ORIGIN = https://your-api-host.example.com   (no trailing slash)
+
+name = "hisabmu"
+compatibility_date = "2025-03-01"
+pages_build_output_dir = "dist"
+
+# Local: wrangler pages dev dist --compatibility-date=2025-03-01
+# [vars]
+# API_ORIGIN = "http://127.0.0.1:3001"

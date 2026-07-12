@@ -1,31 +1,18 @@
 <script setup lang="ts">
 /**
- * TransactionLineEditor — multi-line double-entry editor.
- *
- * Each line: account (COA picker) + description + debit OR credit.
- * Validates: at least 2 lines, exactly one of debit/credit > 0 per line,
- * sum(debit) === sum(credit). Emits update:lines on every change.
- *
- * Optional `categoryId` shortcut: picking a category auto-fills 2 lines
- * (debit account + credit account from category mapping). User can edit
- * after the auto-fill.
+ * Editor jurnal padat — minim langkah:
+ * 1) Nominal + kategori (+ dana) di parent
+ * 2) Tabel 2 baris: akun | debit | kredit
+ * Nominal otomatis mengisi debit baris 1 & kredit baris 2.
  */
 import { computed, ref, watch } from 'vue';
-import { Plus, Trash2, AlertCircle, CheckCircle2, FolderPlus } from 'lucide-vue-next';
-import { Input } from '@/components/ui/input';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableFooter,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Plus, Trash2, CheckCircle2, AlertCircle, FolderPlus } from 'lucide-vue-next';
 import Button from '@/shared/ui/Button.vue';
 import AppSelect from '@/shared/ui/AppSelect.vue';
 import SmartAccountSelect from '@/shared/ui/SmartAccountSelect.vue';
 import MoneyText from '@/shared/ui/MoneyText.vue';
+import MoneyInput from '@/shared/ui/MoneyInput.vue';
+import { parseMoneyInput } from '@/shared/lib/money';
 
 interface Account {
   id: string;
@@ -43,6 +30,7 @@ interface Category {
   direction: 'income' | 'expense';
   debitAccountId: string | null;
   creditAccountId: string | null;
+  defaultFundId?: string | null;
   isActive: boolean;
 }
 
@@ -70,6 +58,8 @@ const props = defineProps<{
   categoryId?: string | null;
   amountHint?: string | null;
   disabled?: boolean;
+  /** Sembunyikan picker kategori/dana (kalau parent sudah handle) */
+  hideToolbar?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -79,6 +69,7 @@ const emit = defineEmits<{
 }>();
 
 const localCategoryId = ref<string>(props.categoryId ?? '');
+const headerFundId = ref<string>('');
 
 watch(
   () => props.categoryId,
@@ -88,24 +79,66 @@ watch(
 );
 
 const categoryOptions = computed(() => [
-  { value: '', label: '— Tanpa kategori (manual) —' },
-  ...(props.categories ?? []).map((c) => ({
-    value: c.id,
-    label: `${c.code} — ${c.name}`,
-  })),
+  { value: '', label: '— Template cepat (opsional) —' },
+  ...(props.categories ?? []).map((c) => {
+    const fundName = c.defaultFundId
+      ? props.funds?.find((f) => f.id === c.defaultFundId)?.name
+      : null;
+    return {
+      value: c.id,
+      label: fundName ? `${c.name} · ${fundName}` : c.name,
+    };
+  }),
 ]);
 
 const showFund = computed(() => (props.funds?.length ?? 0) > 0);
 const fundOptions = computed(() => [
-  { value: '', label: '— Tanpa dana —' },
+  { value: '', label: '— Pilih Dana (wajib) —' },
   ...(props.funds ?? []).map((f) => ({
     value: f.id,
     label: f.isRestricted ? `${f.name} *` : f.name,
   })),
 ]);
 
+function num(s: string): number {
+  const n = Number(s || '0');
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Sync header dana dari baris — pakai unique fund ids (2 baris sama fund = 1 id). */
+function syncHeaderFundFromLines(lines: Line[]): void {
+  if (!showFund.value) return;
+  const unique = [
+    ...new Set(lines.map((l) => l.fundId).filter((id): id is string => !!id)),
+  ];
+  if (unique.length === 1) {
+    headerFundId.value = unique[0]!;
+  } else if (unique.length === 0) {
+    // Jangan paksa kosong kalau user baru pilih di header tapi lines belum emit
+    // — hanya clear jika lines benar-benar tanpa fund.
+    if (lines.some((l) => l.accountId)) {
+      headerFundId.value = '';
+    }
+  }
+  // multi-fund: biarkan header apa adanya (user bisa seragamkan lewat applyFundToAll)
+}
+
+watch(
+  () => props.lines,
+  (lines) => {
+    syncHeaderFundFromLines(lines);
+  },
+  { deep: true, immediate: true },
+);
+
 function emptyLine(): Line {
-  return { accountId: '', debit: '0', credit: '0', description: null, fundId: null };
+  return {
+    accountId: '',
+    debit: '0',
+    credit: '0',
+    description: null,
+    fundId: headerFundId.value || null,
+  };
 }
 
 function ensureMinLines(arr: Line[]): Line[] {
@@ -116,99 +149,158 @@ function ensureMinLines(arr: Line[]): Line[] {
 
 const editable = computed(() => ensureMinLines(props.lines));
 
-function update(idx: number, patch: Partial<Line>): void {
-  const next = editable.value.map((l, i) => (i === idx ? { ...l, ...patch } : l));
-  emit('update:lines', next);
-}
-
-function addLine(): void {
-  emit('update:lines', [...editable.value, emptyLine()]);
-}
-
-function removeLine(idx: number): void {
-  const next = editable.value.filter((_, i) => i !== idx);
+function emitLines(next: Line[]): void {
   emit('update:lines', ensureMinLines(next));
 }
 
-function applyCategory(): void {
-  const c = props.categories?.find((x) => x.id === localCategoryId.value);
-  if (!c) {
-    emit('update:categoryId', localCategoryId.value || null);
-    return;
+function update(idx: number, patch: Partial<Line>): void {
+  emitLines(editable.value.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+}
+
+function addLine(): void {
+  emitLines([...editable.value, emptyLine()]);
+}
+
+function removeLine(idx: number): void {
+  emitLines(editable.value.filter((_, i) => i !== idx));
+}
+
+/** Nominal dari parent (form create). */
+function amtFromHint(): string {
+  const raw = props.amountHint == null ? '' : String(props.amountHint);
+  if (!raw.trim() || raw.trim() === '0') return '0';
+  return parseMoneyInput(raw, { allowZero: true }) || '0';
+}
+
+/**
+ * Nominal efektif: hint parent, atau total debit/kredit baris yang sudah ada
+ * (penting untuk force-edit / edit draft yang amountHint-nya null).
+ */
+function resolveAmount(): string {
+  const fromHint = amtFromHint();
+  if (fromHint !== '0' && Number(fromHint) > 0) return fromHint;
+
+  let totalDebit = 0;
+  let totalCredit = 0;
+  for (const l of props.lines) {
+    totalDebit += num(l.debit);
+    totalCredit += num(l.credit);
   }
-  emit('update:categoryId', c.id);
-  const amt = parseAndClean(props.amountHint || '') || '0';
-  // Auto-fill akun dari mapping kategori. Kalau ada amountHint, pakai nominal
-  // itu di sisi yang relevan; kalau nggak, akun tetap terisi, nominal 0.
-  emit('update:lines', [
-    { accountId: c.debitAccountId ?? '', debit: amt, credit: '0', description: null, fundId: null },
-    { accountId: c.creditAccountId ?? '', debit: '0', credit: amt, description: null, fundId: null },
+  const max = Math.max(totalDebit, totalCredit);
+  if (max > 0) {
+    // Canonical string tanpa formatting
+    return String(Math.round(max * 100) / 100);
+  }
+  return '0';
+}
+
+function amt(): string {
+  return resolveAmount();
+}
+
+const hasNominal = computed(() => {
+  const a = resolveAmount();
+  return a !== '0' && Number(a) > 0;
+});
+
+function applyFundToAll(fundId: string): void {
+  headerFundId.value = fundId;
+  emitLines(editable.value.map((l) => ({ ...l, fundId: fundId || null })));
+}
+
+/** Pola sederhana 2 baris: debit di [0], kredit di [1]. */
+function applySimpleAmounts(lines: Line[], amount: string, fundId: string | null): Line[] {
+  const base = ensureMinLines(lines);
+  if (base.length === 2) {
+    return [
+      {
+        ...base[0]!,
+        debit: amount,
+        credit: '0',
+        fundId: fundId ?? base[0]!.fundId,
+      },
+      {
+        ...base[1]!,
+        debit: '0',
+        credit: amount,
+        fundId: fundId ?? base[1]!.fundId,
+      },
+    ];
+  }
+  // >2 baris: isi baris pertama yang kosong, atau update baris 0 & 1
+  const next = base.map((l) => ({ ...l, fundId: fundId ?? l.fundId }));
+  if (next[0]) {
+    next[0] = { ...next[0], debit: amount, credit: '0' };
+  }
+  if (next[1]) {
+    next[1] = { ...next[1], debit: '0', credit: amount };
+  }
+  return next;
+}
+
+/** Terapkan nominal ke debit/kredit (dipanggil otomatis & lewat tombol). */
+function applyNominalToLines(): void {
+  const amount = resolveAmount();
+  if (amount === '0') return;
+  const fundId = headerFundId.value || null;
+  emitLines(applySimpleAmounts(props.lines, amount, fundId));
+}
+
+function applyCategory(selectedId?: string): void {
+  // Jangan andalkan localCategoryId di tick yang sama dengan v-model — pakai argumen event.
+  const catId = selectedId !== undefined ? selectedId : localCategoryId.value;
+  localCategoryId.value = catId;
+  emit('update:categoryId', catId || null);
+
+  if (!catId) return; // clear template: jangan hapus nominal/akun
+
+  const c = props.categories?.find((x) => x.id === catId);
+  if (!c) return;
+
+  // Jangan reset ke 0: pakai hint ATAU nominal yang sudah di baris jurnal
+  const amount = resolveAmount();
+  // Default dana dari kategori; fallback header / fund di baris existing
+  const existingFund =
+    headerFundId.value ||
+    props.lines.map((l) => l.fundId).find((id): id is string => !!id) ||
+    null;
+  const fundId = c.defaultFundId || existingFund || null;
+  if (fundId) headerFundId.value = fundId;
+
+  const prev = ensureMinLines(props.lines);
+  emitLines([
+    {
+      accountId: c.debitAccountId ?? prev[0]?.accountId ?? '',
+      debit: amount,
+      credit: '0',
+      description: prev[0]?.description ?? null,
+      fundId,
+    },
+    {
+      accountId: c.creditAccountId ?? prev[1]?.accountId ?? '',
+      debit: '0',
+      credit: amount,
+      description: prev[1]?.description ?? null,
+      fundId,
+    },
   ]);
 }
 
-function fmtIDR(s: string): string {
-  const n = Number(s || '0');
-  return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(n);
-}
-
-function num(s: string): number {
-  const n = Number(s || '0');
-  return Number.isFinite(n) ? n : 0;
-}
+/** Nominal hint parent berubah → isi debit/kredit (hanya jika hint > 0). */
+watch(
+  () => props.amountHint,
+  () => {
+    const fromHint = amtFromHint();
+    if (fromHint === '0' || Number(fromHint) <= 0) return;
+    applyNominalToLines();
+  },
+);
 
 const totals = computed(() => {
   const d = editable.value.reduce((a, l) => a + num(l.debit), 0);
   const c = editable.value.reduce((a, l) => a + num(l.credit), 0);
   return { debit: d, credit: c, diff: d - c, balanced: d === c && d > 0 };
 });
-
-/**
- * Format angka: separator ribuan pakai SPASI, desimal pakai `,`.
- * 5000 → "5 000", 1000000 → "1 000 000", 5000.5 → "5 000,5"
- * Pakai spasi biar gak dikira desimal (beda sama titik `.`).
- */
-function fmtInput(value: string): string {
-  if (!value || value === '0') return '';
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return '';
-  const parts = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2, useGrouping: false }).format(n).split(',');
-  // Sisipkan spasi tiap 3 digit dari kanan
-  const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '\u00A0');
-  const decPart = parts[1] ? `,${parts[1]}` : '';
-  return intPart + decPart;
-}
-
-function displayValue(line: Line, idx: number, field: 'debit' | 'credit'): string {
-  const raw = line[field];
-  const f = focused.value;
-  if (f && f.line === idx && f.field === field) {
-    // Fokus: raw — buang trailing .00 biar gak bikin bingung
-    if (!raw || raw === '0') return '';
-    return raw.replace(/\.0{1,2}$/, '');
-  }
-  // Tidak fokus: formatted dengan spasi ribuan
-  return fmtInput(raw);
-}
-
-/**
- * Parse input user: hapus separator ribuan (`.`), ganti desimal `,` → `.`,
- * evaluasi ekspresi `+` untuk penjumlahan pintar.
- * "10000" → "10000", "10.000+25.000+500" → "35500"
- */
-function parseAndClean(raw: string): string {
-  if (!raw) return '';
-  // Strip thousand separators (. dan spasi non-breaking) + convert IDR decimal (,) → (.)
-  let s = raw.replace(/\./g, '').replace(/\s/g, '').replace(/,/g, '.');
-  // Smart addition: 10000+25000+500
-  if (s.includes('+')) {
-    const parts = s.split('+');
-    if (parts.every((p) => /^\d*(\.\d+)?$/.test(p.trim()))) {
-      s = String(parts.reduce((a, p) => a + Number(p.trim() || '0'), 0));
-    }
-  }
-  const n = parseFloat(s);
-  return Number.isFinite(n) && n > 0 ? String(n) : '';
-}
 
 function suggestedAccountFor(lineIndex: number): string | null {
   const cat = props.categories?.find((c) => c.id === localCategoryId.value);
@@ -218,100 +310,110 @@ function suggestedAccountFor(lineIndex: number): string | null {
   return null;
 }
 
-/** Track which line/field is currently focused — show raw value while editing. */
-const focused = ref<{ line: number; field: 'debit' | 'credit' } | null>(null);
-
-function onAmountFocused(idx: number, field: 'debit' | 'credit'): void {
-  focused.value = { line: idx, field };
-}
-
-function onAmountBlurred(idx: number, field: 'debit' | 'credit'): void {
+function onAmountUpdate(idx: number, field: 'debit' | 'credit', value: string): void {
+  const cleaned = parseMoneyInput(value, { allowZero: true }) || '0';
   const line = editable.value[idx];
   if (!line) return;
-  const raw = line[field];
-  const hasExpression = raw.includes('+');
-  const cleaned = parseAndClean(raw);
   const other = field === 'debit' ? 'credit' : 'debit';
-  const patch: Partial<Line> = {};
-  if (cleaned !== raw) {
-    patch[field] = cleaned;
-  }
-  // XOR enforcement on confirm: debit dan kredit gak boleh sama-sama > 0
-  if (cleaned && cleaned !== '0' && num(line[other]) > 0) {
-    patch[other] = '0';
-  }
-  // Auto-fill description: rekap ekspresi kalkulator
-  if (hasExpression && cleaned && !line.description) {
-    const parts = raw.split('+').filter((p) => p.trim());
-    if (parts.length > 1) {
-      const formatted = parts.map((p) => {
-        const n = Number(p.trim().replace(/\./g, '').replace(/,/g, '.'));
-        return Number.isFinite(n) ? fmtIDR(String(n)) : p.trim();
-      });
-      patch.description = formatted.join(' + ');
-    }
-  }
-  if (Object.keys(patch).length > 0) {
-    update(idx, patch);
-  }
-  focused.value = null;
-}
-
-function onAmountInput(idx: number, field: 'debit' | 'credit', value: string): void {
-  // Strip spasi separator ribuan supaya gak ikut tersimpan sebagai digit
-  const raw = value.replace(/\s/g, '');
-  if (raw) {
-    update(idx, { [field]: raw });
-  } else {
-    update(idx, { [field]: '0' });
-  }
+  const patch: Partial<Line> = { [field]: cleaned };
+  if (cleaned !== '0' && num(line[other]) > 0) patch[other] = '0';
+  update(idx, patch);
 }
 </script>
 
 <template>
-  <div class="space-y-3">
-    <div class="flex items-center gap-2 rounded-lg border border-dashed bg-muted/40 px-3 py-2.5">
-      <label class="whitespace-nowrap text-xs font-semibold text-muted-foreground">Kategori:</label>
-      <div class="min-w-0 flex-1">
-        <AppSelect
-          v-model="localCategoryId"
-          :options="categoryOptions"
+  <div class="space-y-2">
+    <!-- Toolbar padat: kategori + dana sebaris -->
+    <div
+      v-if="!hideToolbar"
+      class="flex flex-col gap-2 sm:flex-row sm:items-center"
+    >
+      <div class="flex min-w-0 flex-1 items-center gap-1.5">
+        <div class="min-w-0 flex-1">
+          <AppSelect
+            :model-value="localCategoryId"
+            :options="categoryOptions"
+            :disabled="disabled"
+            @update:model-value="applyCategory"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-9 shrink-0 px-2"
           :disabled="disabled"
-          @update:model-value="applyCategory"
+          title="Kategori baru"
+          @click="emit('request-create-category')"
+        >
+          <FolderPlus class="size-3.5" />
+        </Button>
+      </div>
+      <div
+        v-if="showFund"
+        class="min-w-0 sm:w-56"
+        :class="!headerFundId ? 'rounded-md ring-2 ring-amber-400/70 ring-offset-1' : ''"
+        :title="!headerFundId ? 'Wajib: pilih dana agar masuk SPD / kartu dana' : undefined"
+      >
+        <AppSelect
+          :model-value="headerFundId"
+          :options="fundOptions"
+          :disabled="disabled"
+          @update:model-value="(v: string) => applyFundToAll(v)"
         />
       </div>
-      <Button
-        variant="outline"
-        size="sm"
+      <!-- Status / aksi terapkan nominal -->
+      <button
+        v-if="hasNominal && totals.debit === 0 && totals.credit === 0"
+        type="button"
+        class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/15"
         :disabled="disabled"
-        title="Tambah kategori baru"
-        @click="emit('request-create-category')"
+        @click="applyNominalToLines"
       >
-        <FolderPlus class="h-3.5 w-3.5" /> Baru
-      </Button>
+        Terapkan <MoneyText :value="amt()" class="inline text-primary" />
+      </button>
+      <div
+        v-else
+        class="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border px-2.5 text-[11px] font-semibold"
+        :class="
+          totals.balanced
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            : totals.debit > 0 || totals.credit > 0
+              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              : 'border-border bg-muted/40 text-muted-foreground'
+        "
+      >
+        <CheckCircle2 v-if="totals.balanced" class="size-3.5" />
+        <AlertCircle v-else-if="totals.debit > 0 || totals.credit > 0" class="size-3.5" />
+        <template v-if="totals.balanced">
+          OK <MoneyText :value="totals.debit" class="inline" />
+        </template>
+        <template v-else-if="!hasNominal">Isi nominal di atas</template>
+        <template v-else>
+          Δ <MoneyText :value="Math.abs(totals.diff)" class="inline" />
+        </template>
+      </div>
     </div>
 
-    <div class="overflow-hidden rounded-xl border bg-card">
-      <Table>
-        <TableHeader class="bg-muted/50">
-          <TableRow class="hover:bg-transparent">
-            <TableHead class="w-8 px-2 text-xs uppercase tracking-wide text-muted-foreground">#</TableHead>
-            <TableHead class="px-3 text-xs uppercase tracking-wide text-muted-foreground">Akun (COA)</TableHead>
-            <TableHead v-if="showFund" class="w-40 px-3 text-xs uppercase tracking-wide text-muted-foreground">Dana</TableHead>
-            <TableHead class="px-3 text-xs uppercase tracking-wide text-muted-foreground">Keterangan</TableHead>
-            <TableHead class="w-36 px-3 text-right text-xs uppercase tracking-wide text-emerald-800 bg-emerald-50/70">
-              Debit
-            </TableHead>
-            <TableHead class="w-36 px-3 text-right text-xs uppercase tracking-wide text-amber-800 bg-amber-50/70">
-              Kredit
-            </TableHead>
-            <TableHead class="w-10 px-2" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow v-for="(line, i) in editable" :key="i">
-            <TableCell class="px-2 py-2 text-center text-xs text-muted-foreground">{{ i + 1 }}</TableCell>
-            <TableCell class="px-3 py-2">
+    <!-- Tabel padat -->
+    <div class="overflow-x-auto rounded-lg border border-border/80">
+      <table class="w-full min-w-[28rem] border-collapse text-sm">
+        <thead>
+          <tr class="border-b bg-muted/40 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <th class="w-8 px-2 py-1.5">#</th>
+            <th class="px-2 py-1.5">Akun</th>
+            <th class="w-[7.5rem] px-2 py-1.5 text-right text-emerald-800">Debit</th>
+            <th class="w-[7.5rem] px-2 py-1.5 text-right text-amber-800">Kredit</th>
+            <th class="w-8 px-1 py-1.5" />
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="(line, i) in editable"
+            :key="i"
+            class="border-b border-border/50 last:border-0"
+          >
+            <td class="px-2 py-1.5 text-center text-[11px] text-muted-foreground">{{ i + 1 }}</td>
+            <td class="min-w-0 px-2 py-1.5">
               <SmartAccountSelect
                 :model-value="line.accountId || null"
                 :accounts="accounts"
@@ -321,111 +423,64 @@ function onAmountInput(idx: number, field: 'debit' | 'credit', value: string): v
                 required
                 @update:model-value="(v: string) => update(i, { accountId: v })"
               />
-            </TableCell>
-            <TableCell v-if="showFund" class="px-3 py-2">
-              <AppSelect
-                :model-value="line.fundId ?? ''"
-                :options="fundOptions"
+            </td>
+            <td class="px-1.5 py-1.5">
+              <MoneyInput
+                :model-value="line.debit === '0' ? '' : line.debit"
                 :disabled="disabled"
-                @update:model-value="(v: string) => update(i, { fundId: v || null })"
-              />
-            </TableCell>
-            <TableCell class="px-3 py-2">
-              <Input
-                :model-value="line.description ?? ''"
-                :disabled="disabled"
-                placeholder="(opsional)"
-                @update:model-value="(v) => update(i, { description: String(v) || null })"
-              />
-            </TableCell>
-            <TableCell class="px-3 py-2 bg-emerald-50/30">
-              <Input
-                :model-value="displayValue(line, i, 'debit')"
-                class="border-emerald-200 bg-background text-right font-mono tabular-nums focus-visible:border-emerald-400 focus-visible:ring-emerald-100"
-                :disabled="disabled"
-                inputmode="numeric"
+                :show-currency="false"
+                :allow-zero="true"
                 placeholder="0"
-                @focus="onAmountFocused(i, 'debit')"
-                @blur="onAmountBlurred(i, 'debit')"
-                @update:model-value="(v) => onAmountInput(i, 'debit', String(v))"
+                input-class="h-8 border-emerald-200/70 bg-emerald-50/30 text-xs"
+                @update:model-value="(v) => onAmountUpdate(i, 'debit', v)"
               />
-            </TableCell>
-            <TableCell class="px-3 py-2 bg-amber-50/30">
-              <Input
-                :model-value="displayValue(line, i, 'credit')"
-                class="border-amber-200 bg-background text-right font-mono tabular-nums focus-visible:border-amber-400 focus-visible:ring-amber-100"
+            </td>
+            <td class="px-1.5 py-1.5">
+              <MoneyInput
+                :model-value="line.credit === '0' ? '' : line.credit"
                 :disabled="disabled"
-                inputmode="numeric"
+                :show-currency="false"
+                :allow-zero="true"
                 placeholder="0"
-                @focus="onAmountFocused(i, 'credit')"
-                @blur="onAmountBlurred(i, 'credit')"
-                @update:model-value="(v) => onAmountInput(i, 'credit', String(v))"
+                input-class="h-8 border-amber-200/70 bg-amber-50/30 text-xs"
+                @update:model-value="(v) => onAmountUpdate(i, 'credit', v)"
               />
-            </TableCell>
-            <TableCell class="px-2 py-2 text-center">
-              <Button
+            </td>
+            <td class="px-1 py-1.5 text-center">
+              <button
                 v-if="editable.length > 2 && !disabled"
-                variant="ghost"
-                size="sm"
-                title="Hapus baris"
+                type="button"
+                class="rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+                title="Hapus"
                 @click="removeLine(i)"
               >
-                <Trash2 class="h-4 w-4 text-destructive" />
-              </Button>
-            </TableCell>
-          </TableRow>
-        </TableBody>
-        <TableFooter>
-          <TableRow class="hover:bg-transparent">
-            <TableCell :colspan="showFund ? 4 : 3" class="px-3 py-2 text-right text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Total
-            </TableCell>
-            <TableCell class="px-3 py-2 text-right font-mono text-sm font-semibold bg-emerald-50/50 text-emerald-800">
-              <MoneyText :value="totals.debit" />
-            </TableCell>
-            <TableCell class="px-3 py-2 text-right font-mono text-sm font-semibold bg-amber-50/50 text-amber-800">
-              <MoneyText :value="totals.credit" />
-            </TableCell>
-            <TableCell />
-          </TableRow>
-        </TableFooter>
-      </Table>
+                <Trash2 class="size-3.5" />
+              </button>
+            </td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr class="border-t bg-muted/30 text-xs font-semibold">
+            <td colspan="2" class="px-2 py-1.5 text-right text-muted-foreground">Total</td>
+            <td class="px-2 py-1.5 text-right text-emerald-800">
+              <MoneyText :value="totals.debit" class="text-xs" />
+            </td>
+            <td class="px-2 py-1.5 text-right text-amber-800">
+              <MoneyText :value="totals.credit" class="text-xs" />
+            </td>
+            <td />
+          </tr>
+        </tfoot>
+      </table>
     </div>
 
-    <div class="flex items-center justify-between">
-      <Button
-        variant="outline"
-        size="sm"
-        class="border-dashed"
-        :disabled="disabled"
-        @click="addLine"
-      >
-        <Plus class="h-3.5 w-3.5" /> Tambah baris
-      </Button>
-      <div class="flex items-center gap-3">
-        <span class="text-[0.65rem] text-muted-foreground">
-          Tip: gunakan <kbd class="rounded border border-border bg-muted px-1 py-px text-[0.6rem] font-mono">+</kbd> untuk penjumlahan otomatis · <kbd class="rounded border border-border bg-muted px-1 py-px text-[0.6rem] font-mono">Tab</kbd> untuk format
-        </span>
-        <div
-          class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors duration-200"
-          :class="totals.balanced
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-            : (totals.debit > 0 || totals.credit > 0)
-              ? 'border-amber-200 bg-amber-50 text-amber-700'
-              : 'border-border bg-muted/50 text-muted-foreground'"
-        >
-          <CheckCircle2 v-if="totals.balanced" class="h-4 w-4 shrink-0" />
-          <AlertCircle v-else-if="totals.debit > 0 || totals.credit > 0" class="h-4 w-4 shrink-0" />
-          <span v-else class="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-current opacity-30" />
-          <span v-if="totals.balanced" class="inline-flex items-center gap-1">
-            Seimbang · <MoneyText :value="totals.debit" class="inline" />
-          </span>
-          <span v-else-if="totals.debit === 0 && totals.credit === 0">Belum ada nominal</span>
-          <span v-else class="inline-flex items-center gap-1">
-            Selisih <MoneyText :value="Math.abs(totals.diff)" class="inline" />
-          </span>
-        </div>
-      </div>
-    </div>
+    <button
+      type="button"
+      class="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+      :disabled="disabled"
+      @click="addLine"
+    >
+      <Plus class="size-3" /> Tambah baris
+    </button>
   </div>
 </template>

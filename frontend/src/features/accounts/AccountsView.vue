@@ -17,7 +17,7 @@ import {
   X,
   ArrowRightLeft,
 } from 'lucide-vue-next';
-import { api } from '@/shared/api/client';
+import { api, formatApiError } from '@/shared/api/client';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -41,6 +41,7 @@ import PageHeader from '@/shared/ui/PageHeader.vue';
 import AppSelect from '@/shared/ui/AppSelect.vue';
 import AppCheckbox from '@/shared/ui/AppCheckbox.vue';
 import MoneyText from '@/shared/ui/MoneyText.vue';
+import MoneyInput from '@/shared/ui/MoneyInput.vue';
 import SmartAccountSelect from '@/shared/ui/SmartAccountSelect.vue';
 
 type AccountType =
@@ -410,6 +411,43 @@ async function load(): Promise<void> {
   }
 }
 
+function suggestChildCode(parentId: string): string {
+  const parent = items.value.find((a) => a.id === parentId);
+  if (!parent) return '';
+  const prefix = parent.code;
+  // Cari sibling dengan prefix yang sama, ambil nomor berikutnya
+  const children = items.value.filter(
+    (a) => a.parentId === parentId || a.code.startsWith(`${prefix}.`) || a.code.startsWith(prefix),
+  );
+  const nums: number[] = [];
+  for (const c of children) {
+    if (c.id === parentId) continue;
+    // 1110.01 / 11101 / 1110-1
+    const m = c.code.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[.-]?(\\d+)$`));
+    if (m) nums.push(Number(m[1]));
+  }
+  const next = (nums.length ? Math.max(...nums) : 0) + 1;
+  // Prefer hierarchical: 1110.01 style if parent looks numeric
+  if (/^\d+$/.test(prefix)) {
+    return `${prefix}.${String(next).padStart(2, '0')}`;
+  }
+  return `${prefix}-${next}`;
+}
+
+function onParentChange(parentId: string): void {
+  form.parentId = parentId;
+  if (editing.value || !parentId) return;
+  // Auto-isi kode anak hanya jika kode masih kosong / masih kode induk
+  const parent = items.value.find((a) => a.id === parentId);
+  if (!parent) return;
+  if (!form.code.trim() || form.code.trim() === parent.code) {
+    form.code = suggestChildCode(parentId);
+  }
+  // Samakan tipe akun dengan induk (biasanya sama cabang)
+  form.accountType = parent.accountType;
+  form.normalBalance = parent.normalBalance;
+}
+
 function openCreate(): void {
   editing.value = null;
   resetForm(null);
@@ -424,19 +462,54 @@ function openEdit(a: Account): void {
   modalOpen.value = true;
 }
 
+function normalizeOpeningBalance(raw: string): string {
+  const s = raw.trim().replace(/\s/g, '');
+  if (!s) return '0';
+  // "1.000.000,50" (ID) → "1000000.50"
+  if (/^\d{1,3}(\.\d{3})+(,\d{1,2})?$/.test(s)) {
+    return s.replace(/\./g, '').replace(',', '.');
+  }
+  // "1000,50" → "1000.50"
+  if (/^\d+,\d{1,2}$/.test(s)) return s.replace(',', '.');
+  return s;
+}
+
 async function save(): Promise<void> {
-  saving.value = true;
   modalError.value = null;
+  const code = String(form.code ?? '').trim();
+  const name = String(form.name ?? '').trim();
+  if (!code) {
+    modalError.value = 'Kode akun wajib diisi (contoh: 1110.01 untuk sub-akun Kas).';
+    return;
+  }
+  if (!/^[A-Za-z0-9._-]+$/.test(code)) {
+    modalError.value = 'Kode hanya boleh huruf, angka, titik, _ atau - (tanpa spasi).';
+    return;
+  }
+  if (name.length < 1) {
+    modalError.value = 'Nama akun wajib diisi.';
+    return;
+  }
+  // Cegah kode sama dengan induk
+  if (form.parentId) {
+    const parent = items.value.find((a) => a.id === form.parentId);
+    if (parent && parent.code === code) {
+      modalError.value = `Kode tidak boleh sama dengan akun induk (${parent.code}). Gunakan mis. ${suggestChildCode(form.parentId)}.`;
+      return;
+    }
+  }
+
+  saving.value = true;
   try {
     const payload = {
-      parentId: form.parentId || null,
-      code: form.code,
-      name: form.name,
+      parentId: form.parentId?.trim() ? form.parentId.trim() : null,
+      code,
+      name,
       accountType: form.accountType,
       normalBalance: form.normalBalance,
-      description: form.description || null,
+      description: form.description.trim() || null,
       isActive: form.isActive,
-      openingBalance: form.openingBalance || '0',
+      openingBalance: normalizeOpeningBalance(form.openingBalance),
     };
     if (editing.value) {
       const { code: _omit, ...patch } = payload;
@@ -448,8 +521,7 @@ async function save(): Promise<void> {
     modalOpen.value = false;
     await load();
   } catch (err) {
-    const e = err as { body?: { error?: string } };
-    modalError.value = e.body?.error ?? (err as Error).message;
+    modalError.value = formatApiError(err, 'Gagal menyimpan akun');
   } finally {
     saving.value = false;
   }
@@ -852,21 +924,30 @@ onMounted(load);
       </Alert>
       <form class="space-y-3" @submit.prevent="save">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <FormField label="Kode" required>
+          <FormField
+            label="Kode"
+            required
+            :hint="form.parentId ? 'Sub-akun: jangan samakan kode induk — otomatis disarankan saat pilih induk' : 'Contoh: 1110, 1110.01, 4101'"
+          >
             <Input
               v-model="form.code"
               :disabled="!!editing"
               required
               maxlength="20"
-              placeholder="1110"
+              placeholder="1110.01"
             />
           </FormField>
-          <FormField label="Akun induk">
-            <AppSelect v-model="form.parentId" :options="parentSelectOptions" placeholder="— Tidak ada —" />
+          <FormField label="Akun induk" hint="Opsional — pilih induk agar kode anak disarankan">
+            <AppSelect
+              :model-value="form.parentId"
+              :options="parentSelectOptions"
+              placeholder="— Tidak ada —"
+              @update:model-value="onParentChange"
+            />
           </FormField>
         </div>
         <FormField label="Nama" required>
-          <Input v-model="form.name" required minlength="2" />
+          <Input v-model="form.name" required minlength="1" placeholder="Mis. Kas PAP" />
         </FormField>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <FormField label="Tipe akun" required>
@@ -883,8 +964,8 @@ onMounted(load);
         <FormField label="Deskripsi">
           <Textarea v-model="form.description" rows="2" />
         </FormField>
-        <FormField label="Saldo awal" hint="Saldo sebelum ada jurnal \u2014 nilainya ditambahkan ke mutasi">
-          <Input v-model="form.openingBalance" inputmode="decimal" placeholder="0" />
+        <FormField label="Saldo awal" hint="Saldo sebelum ada jurnal — otomatis format 1.793.000">
+          <MoneyInput v-model="form.openingBalance" placeholder="0" />
         </FormField>
         <FormField label="Status">
           <AppCheckbox v-model="form.isActive" label="Aktif" />

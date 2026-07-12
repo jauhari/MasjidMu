@@ -15,6 +15,7 @@ export type ReportType =
   | 'trial-balance'
   | 'jurnal-umum'
   | 'sumber-penggunaan-dana'
+  | 'buku-dana'
   | 'konsolidasi-dana';
 
 export type ExportFormat = 'json' | 'pdf' | 'xlsx';
@@ -189,6 +190,36 @@ export interface FundUsageData {
   totalPenyaluran: string;
   totalSurplusDeficit: string;
   totalClosing: string;
+}
+
+// ─── Buku Dana (detail 1 dana) ────────────────────────────────────────
+export interface FundLedgerMovement {
+  journalId: string;
+  journalNo: string;
+  journalDate: string;
+  description: string | null;
+  accountCode: string;
+  accountName: string;
+  direction: 'penerimaan' | 'penyaluran';
+  amount: string;
+  runningBalance: string;
+  /** Transaksi sumber (jika jurnal dari posting transaksi). */
+  transactionId: string | null;
+  transactionNo: string | null;
+}
+
+export interface FundLedgerData {
+  fundId: string;
+  fundCode: string;
+  fundName: string;
+  fundType: string;
+  isRestricted: boolean;
+  openingBalance: string;
+  totalPenerimaan: string;
+  totalPenyaluran: string;
+  surplusDeficit: string;
+  closingBalance: string;
+  movements: FundLedgerMovement[];
 }
 
 // ─── Konsolidasi Multi-Entitas — Sumber & Penggunaan Dana (PSAK 109) ───
