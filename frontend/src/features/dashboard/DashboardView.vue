@@ -291,15 +291,28 @@ const donutArcs = computed(() => {
 });
 
 // ─── Cashflow chart ────────────────────────────────────────────────────────
+function fmtRupiah(n: number): string {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0,
+  }).format(n);
+}
+
 const chartMax = computed(() =>
   Math.max(...cashFlowMonths.value.flatMap((m) => [m.income, m.expense]), 1),
 );
 const chartBars = computed(() =>
-  cashFlowMonths.value.map((m) => ({
-    label: format(new Date(m.year, m.month - 1, 1), 'MMM', { locale: localeId }),
-    inH: Math.max(6, Math.round((m.income / chartMax.value) * 128)),
-    outH: Math.max(6, Math.round((m.expense / chartMax.value) * 128)),
-  })),
+  cashFlowMonths.value.map((m) => {
+    const monthLabel = format(new Date(m.year, m.month - 1, 1), 'MMMM yyyy', { locale: localeId });
+    return {
+      label: format(new Date(m.year, m.month - 1, 1), 'MMM', { locale: localeId }),
+      inH: Math.max(6, Math.round((m.income / chartMax.value) * 128)),
+      outH: Math.max(6, Math.round((m.expense / chartMax.value) * 128)),
+      inTitle: `Pemasukan ${monthLabel}: ${fmtRupiah(m.income)}`,
+      outTitle: `Pengeluaran ${monthLabel}: ${fmtRupiah(m.expense)}`,
+    };
+  }),
 );
 const chartRangeLabel = computed(() => {
   if (cashFlowMonths.value.length < 2) return format(now, 'yyyy');
@@ -909,11 +922,13 @@ onActivated(() => {
           >
             <div class="flex w-full flex-1 items-end justify-center gap-1.5">
               <div
-                class="w-[11px] rounded-t-[5px] bg-gradient-to-t from-emerald-800 to-emerald-500 transition-all duration-500 sm:w-3"
+                :title="b.inTitle"
+                class="w-[11px] cursor-default rounded-t-[5px] bg-gradient-to-t from-emerald-800 to-emerald-500 transition-all duration-500 sm:w-3"
                 :style="{ height: b.inH + 'px' }"
               ></div>
               <div
-                class="w-[11px] rounded-t-[5px] bg-gradient-to-t from-amber-600 to-amber-300 transition-all duration-500 sm:w-3"
+                :title="b.outTitle"
+                class="w-[11px] cursor-default rounded-t-[5px] bg-gradient-to-t from-amber-600 to-amber-300 transition-all duration-500 sm:w-3"
                 :style="{ height: b.outH + 'px' }"
               ></div>
             </div>
