@@ -21,6 +21,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { useAuthStore } from '@/features/auth/store';
+import TenantSwitcher from './TenantSwitcher.vue';
 
 defineProps<{
   open: boolean;
@@ -72,6 +73,14 @@ const sections = computed(() => [
         <SheetDescription>Profil, konten, dan pengaturan tambahan</SheetDescription>
       </SheetHeader>
       <div class="mt-2 overflow-y-auto px-3 pb-4">
+        <section v-if="auth.isSuperAdmin" class="mb-4">
+          <p class="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Lembaga aktif
+          </p>
+          <div class="px-2">
+            <TenantSwitcher />
+          </div>
+        </section>
         <section v-for="section in sections" :key="section.label" class="mb-4">
           <p class="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {{ section.label }}
