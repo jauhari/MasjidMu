@@ -27,4 +27,4 @@ COPY --from=build /app/backend/package.json ./backend/
 COPY --from=build /app/shared ./shared
 EXPOSE 3000
 WORKDIR /app/backend
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/src/index.js"]
