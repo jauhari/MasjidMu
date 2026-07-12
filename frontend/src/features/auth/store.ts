@@ -1,17 +1,20 @@
 /**
  * Auth store — wraps better-auth's session endpoint.
  *
- * Login: POST /api/auth/sign-in/email; cookie set by server.
+ * Login: POST /api/auth/sign-in/email (or Google redirect); cookie set by
+ * server either way — no tenant slug needed from the client at all. The
+ * backend resolves which lembaga a user belongs to on its own (see
+ * `resolveHomeTenantSlug` in backend/src/middleware/tenant.ts); `fetchMe()`
+ * just picks up whatever slug the server reports and caches it locally so
+ * later requests carry it as `X-Tenant-Slug` (superseded once the app moves
+ * to real subdomains — see that file's comments).
  * Resume: GET /api/auth/get-session on app boot to hydrate the user.
  * Logout: POST /api/auth/sign-out.
- *
- * Tenant slug is also tracked here for dev (set by login form / tenant picker)
- * — the API client picks it up via `setTenantSlug` so every request carries
- * the `X-Tenant-Slug` header backend tenantResolver expects in dev.
  */
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { api, clearApiGetCache, getTenantSlug, setTenantSlug } from '@/shared/api/client';
+import { authClient } from '@/shared/api/auth-client';
 
 interface AuthUser {
   id: string;
@@ -98,7 +101,10 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const res = await api.get<SessionResponse | null>('/api/auth/get-session');
       user.value = res?.user ?? null;
-      if (user.value && tenantSlug.value) await fetchMe();
+      // Always resolve — the server figures out the tenant on its own now,
+      // not gated on already having a cached slug (fresh login, cleared
+      // localStorage, or a Google-redirect session all start with none).
+      if (user.value) await fetchMe();
     } catch {
       user.value = null;
     } finally {
@@ -106,15 +112,18 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function signIn(email: string, password: string, slug: string): Promise<void> {
-    setTenantSlug(slug);
-    tenantSlug.value = slug;
+  async function signIn(email: string, password: string): Promise<void> {
     const res = await api.post<SessionResponse>('/api/auth/sign-in/email', {
       email,
       password,
     });
     user.value = res.user;
     await fetchMe();
+  }
+
+  /** Redirects to Google's consent screen; resumes via init() on return. */
+  async function signInWithGoogle(): Promise<void> {
+    await authClient.signIn.social({ provider: 'google', callbackURL: '/' });
   }
 
   /**
@@ -134,7 +143,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function signOut(): Promise<void> {
     try {
-      await api.post('/api/auth/sign-out');
+      // better-auth requires a real JSON body on POST — an empty call sends
+      // no Content-Type at all and 415s, silently leaving the session
+      // cookie alive server-side while the UI already looks signed out.
+      await api.post('/api/auth/sign-out', {});
     } finally {
       user.value = null;
       isSuperAdmin.value = false;
@@ -160,6 +172,7 @@ export const useAuthStore = defineStore('auth', () => {
     init,
     fetchMe,
     signIn,
+    signInWithGoogle,
     switchTenant,
     signOut,
   };

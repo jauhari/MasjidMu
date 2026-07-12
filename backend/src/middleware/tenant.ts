@@ -10,6 +10,15 @@
  * where custom headers can't be set): `?tenant_slug=` query parameter is
  * accepted on dev hosts only.
  *
+ * When no host/header/query resolves a slug at all, and the request carries
+ * an authenticated session, falls back to the user's own tenant membership
+ * (`users` row for their authUserId) — this is what lets login be just
+ * email+password with no slug field: the client never needs to know or send
+ * a tenant, the server looks up where this person actually belongs. Only
+ * kicks in when that's unambiguous (exactly one membership); a super_admin
+ * with several (or a regular user somehow given two) gets nothing here and
+ * falls through to GOD-mode TenantSwitcher instead of a guess.
+ *
  * Sets `c.var.tenant` and `c.var.tenantId`. Downstream code uses
  * `withTenant(c.var.tenantId, ...)` to scope DB queries.
  *
@@ -17,9 +26,11 @@
  * register BEFORE this middleware.
  */
 import type { MiddlewareHandler } from 'hono';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { asSuperAdmin } from '../db/client.js';
-import { tenants, type Tenant } from '../db/schema/core.js';
+import { tenants, users, type Tenant } from '../db/schema/core.js';
+import { memGet, memSet } from '../lib/memory-cache.js';
+import type { SessionVars } from './session.js';
 
 const PUBLIC_HOSTS = new Set([
   'api.hisabmu.id',
@@ -33,6 +44,7 @@ export type TenantVars = {
 
 const cache = new Map<string, { tenant: Tenant; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000;
+const HOME_TENANT_CACHE_TTL_SEC = 60;
 
 // Hosts without their own subdomain-per-tenant DNS yet — fall back to the
 // header/query mechanism like localhost. TEMPORARY: remove once
@@ -78,12 +90,48 @@ async function resolveTenant(slug: string): Promise<Tenant | null> {
   return t;
 }
 
-export const tenantResolver = (): MiddlewareHandler<{ Variables: TenantVars }> =>
+/**
+ * A user's own tenant membership, for when no slug came from host/header/
+ * query at all. Resolves ONLY when the user has exactly one `users` row
+ * (one tenant membership) — the common case for a regular bendahara account.
+ * Zero rows (pure super_admin) or two-plus (a person who happens to belong to
+ * — or admins the platform into — more than one lembaga) both deliberately
+ * resolve to nothing rather than guessing; those people use GOD-mode
+ * TenantSwitcher to pick explicitly. Confirmed live on `admin@masjidmu.id`,
+ * which really does hold two real memberships today — auto-picking either
+ * one would have been wrong.
+ */
+async function resolveHomeTenantSlug(authUserId: string): Promise<string | null> {
+  const cacheKey = `home-tenant:${authUserId}`;
+  const cached = memGet<string | '__none__'>(cacheKey);
+  if (cached === '__none__') return null;
+  if (typeof cached === 'string') return cached;
+
+  const slug = await asSuperAdmin(async (tx) => {
+    const rows = await tx
+      .select({ slug: tenants.slug })
+      .from(users)
+      .innerJoin(tenants, eq(tenants.id, users.tenantId))
+      .where(and(eq(users.authUserId, authUserId), isNull(users.deletedAt)))
+      .limit(2);
+    return rows.length === 1 ? rows[0]!.slug : null;
+  });
+
+  memSet(cacheKey, slug ?? '__none__', HOME_TENANT_CACHE_TTL_SEC);
+  return slug;
+}
+
+export const tenantResolver = (): MiddlewareHandler<{ Variables: SessionVars & TenantVars }> =>
   async (c, next) => {
     const host = c.req.header('host') ?? '';
     const devHeader = c.req.header('x-tenant-slug') ?? undefined;
     const devQuery = c.req.query('tenant_slug') ?? undefined;
-    const slug = extractSlug(host, devHeader, devQuery);
+    let slug = extractSlug(host, devHeader, devQuery);
+
+    if (!slug) {
+      const user = c.get('user');
+      if (user) slug = await resolveHomeTenantSlug(user.id);
+    }
 
     if (slug) {
       const tenant = await resolveTenant(slug);

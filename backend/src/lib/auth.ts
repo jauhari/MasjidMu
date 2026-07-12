@@ -30,6 +30,20 @@ export const auth = betterAuth({
     requireEmailVerification: false, // flip to true once Resend wired
   },
 
+  // Only wired up once both env vars are set (see lib/env.ts) — omitted
+  // entirely otherwise so the client's "Login dengan Google" button gets a
+  // clean "provider not configured" error instead of a broken flow.
+  ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+    ? {
+        socialProviders: {
+          google: {
+            clientId: env.GOOGLE_CLIENT_ID,
+            clientSecret: env.GOOGLE_CLIENT_SECRET,
+          },
+        },
+      }
+    : {}),
+
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7d refresh
     updateAge: 60 * 60 * 24, // refresh activity once per day
@@ -53,6 +67,9 @@ export const auth = betterAuth({
     'https://hisabmu.id',
     'https://www.hisabmu.id',
     'https://admin.hisabmu.id',
+    // Temporary — the actual production frontend until app.hisabmu.id (custom
+    // domain) is set up. Remove once that's live.
+    'https://hisabmu.pages.dev',
     // Wildcard subdomain authoritative origin matching is enforced via Hono
     // CORS regex in app.ts; better-auth gets a static list of canonical hosts.
   ],

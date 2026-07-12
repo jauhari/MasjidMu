@@ -17,6 +17,13 @@ const envSchema = z.object({
   BETTER_AUTH_SECRET: z.string().min(32, 'BETTER_AUTH_SECRET must be ≥ 32 chars'),
   BETTER_AUTH_URL: z.string().url(),
 
+  // "Login dengan Google" — optional; the provider is only wired up in
+  // lib/auth.ts when both are set. Get these from console.cloud.google.com
+  // → APIs & Services → Credentials → OAuth client ID (type: Web application),
+  // authorized redirect URI: {BETTER_AUTH_URL}/api/auth/callback/google
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+
   // Unused by the hot path (rate-limit/permission/report caches are
   // in-memory, see middleware/rate-limit.ts, middleware/permission.ts,
   // modules/accounting/reports/cache.ts) — kept optional for lib/redis.ts,
