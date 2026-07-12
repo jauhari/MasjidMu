@@ -34,12 +34,20 @@ export type TenantVars = {
 const cache = new Map<string, { tenant: Tenant; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000;
 
+// Hosts without their own subdomain-per-tenant DNS yet — fall back to the
+// header/query mechanism like localhost. TEMPORARY: remove once
+// {slug}.hisabmu.id is live and every tenant has a real subdomain; safe in
+// the meantime because permissionResolver still scopes by real
+// (authUserId, tenantId) DB membership — a non-super-admin can't read another
+// tenant's data just by sending a different header value.
+const HEADER_FALLBACK_HOSTS = new Set(['masjidmu-backend.onrender.com']);
+
 function extractSlug(host: string, devHeaderSlug?: string, devQuerySlug?: string): string | null {
   // Strip port
   const hostname = host.split(':')[0]!.toLowerCase();
 
   // Dev: localhost — header takes precedence over query param
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || HEADER_FALLBACK_HOSTS.has(hostname)) {
     return (devHeaderSlug ?? devQuerySlug)?.toLowerCase() ?? null;
   }
 
