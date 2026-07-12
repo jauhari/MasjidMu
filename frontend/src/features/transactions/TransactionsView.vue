@@ -584,6 +584,11 @@ const canExpressPost = computed(
     auth.hasPermission('transactions.post') ||
     auth.hasPermission('transactions.god_mode'),
 );
+const canImportPap = computed(
+  () =>
+    auth.isSuperAdmin ||
+    (auth.hasPermission('transactions.create') && auth.hasPermission('transactions.post')),
+);
 
 async function save(opts?: { expressPost?: boolean }): Promise<void> {
   saving.value = true;
@@ -1286,6 +1291,14 @@ onMounted(async () => {
       :crumbs="[{ label: 'Dashboard', to: '/' }, { label: 'Keuangan' }, { label: 'Transaksi' }]"
     >
       <template #actions>
+        <Button
+          v-if="canImportPap"
+          variant="secondary"
+          size="sm"
+          @click="router.push('/transactions/import/pap')"
+        >
+          <Upload class="h-4 w-4" /> <span class="hidden lg:inline">Impor Rekapan PAP</span>
+        </Button>
         <Button
           v-if="auth.isSuperAdmin"
           variant="secondary"

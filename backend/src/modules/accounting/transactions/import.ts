@@ -33,7 +33,7 @@
  */
 import ExcelJS from 'exceljs';
 import { Decimal } from 'decimal.js';
-import { and, count, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { withTenant } from '../../../db/client.js';
 import {
   accounts,
@@ -43,6 +43,8 @@ import {
   transactionLines,
   transactions,
 } from '../../../db/schema/accounting.js';
+import { normalizeImportedAmount, normalizeImportedDate } from './import-normalization.js';
+import { allocateAccountingNumber } from './numbering.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 type Layout = 'per_line' | 'per_tx';
@@ -171,58 +173,12 @@ function cellString(v: unknown): string {
   }
 }
 
-function parseAmount(v: unknown): string {
-  // Numbers come through as numbers; formulas like {result:18051000} → cellString → "18051000"
-  if (typeof v === 'number') {
-    return v < 0 ? '0' : new Decimal(v).toFixed(2);
-  }
-  const s = cellString(v);
-  if (!s || s === '-') return '0';
-  // Indonesian format: thousand sep "." or "," — strip non-digits except last decimal
-  // Heuristic: if both "," and "." present, the rightmost is decimal sep
-  let normalized = s.replace(/\s/g, '');
-  if (normalized.includes(',') && normalized.includes('.')) {
-    const lastComma = normalized.lastIndexOf(',');
-    const lastDot = normalized.lastIndexOf('.');
-    const decSep = lastComma > lastDot ? ',' : '.';
-    const thouSep = decSep === ',' ? '.' : ',';
-    normalized = normalized.split(thouSep).join('').replace(decSep, '.');
-  } else {
-    // Single separator: assume thousand if 3 digits before end, else decimal
-    normalized = normalized.replace(/[^\d.,-]/g, '');
-    if (normalized.includes(',')) normalized = normalized.replace(',', '.');
-  }
-  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return '0';
-  const n = new Decimal(normalized);
-  return n.lt(0) ? '0' : n.toFixed(2);
+function parseAmount(v: unknown): ReturnType<typeof normalizeImportedAmount> {
+  return normalizeImportedAmount(v);
 }
 
-function parseDate(v: unknown): string | null {
-  if (v instanceof Date) {
-    if (isNaN(v.getTime())) return null;
-    return v.toISOString();
-  }
-  if (typeof v === 'object' && v !== null) {
-    const o = v as Record<string, unknown>;
-    if (o.result instanceof Date) {
-      const d = o.result as Date;
-      return isNaN(d.getTime()) ? null : d.toISOString();
-    }
-    if (o.result !== undefined) return parseDate(o.result);
-  }
-  const s = cellString(v);
-  if (!s) return null;
-  // Indonesian DD/MM/YYYY or DD-MM-YYYY
-  const idMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-  if (idMatch) {
-    const [, d, m, y] = idMatch;
-    const year = y.length === 2 ? 2000 + Number(y) : Number(y);
-    const dt = new Date(Date.UTC(year, Number(m) - 1, Number(d)));
-    if (!isNaN(dt.getTime())) return dt.toISOString();
-  }
-  const dt = new Date(s);
-  if (!isNaN(dt.getTime())) return dt.toISOString();
-  return null;
+function parseDate(v: unknown): ReturnType<typeof normalizeImportedDate> {
+  return normalizeImportedDate(v);
 }
 
 /**
@@ -230,7 +186,7 @@ function parseDate(v: unknown): string | null {
  * Returns both parts for matching purposes.
  */
 function splitAccountLabel(label: string): { code: string | null; name: string } {
-  const m = label.match(/^\s*([\w\d.\-]+)\s*[|\-:]\s*(.+)$/);
+  const m = label.match(/^\s*([\w\d.-]+)\s*[|:-]\s*(.+)$/);
   if (m) return { code: m[1]!.trim(), name: m[2]!.trim() };
   return { code: null, name: label.trim() };
 }
@@ -301,27 +257,32 @@ export async function parseImportFile(
     let groupCounter = 0;
     for (let r = headerRow + 1; r <= sheet.rowCount; r++) {
       const row = sheet.getRow(r);
-      const date = parseDate(row.getCell(colIndex.date).value);
+      const dateResult = parseDate(row.getCell(colIndex.date).value);
       const desc = colIndex.description ? cellString(row.getCell(colIndex.description).value) : '';
       const refNo = colIndex.referenceNo ? cellString(row.getCell(colIndex.referenceNo).value) || null : null;
       const dbAcc = colIndex.accountDebit ? cellString(row.getCell(colIndex.accountDebit).value) : '';
       const crAcc = colIndex.accountCredit ? cellString(row.getCell(colIndex.accountCredit).value) : '';
-      const amount = parseAmount(row.getCell(colIndex.amount!).value);
+      const amountResult = parseAmount(row.getCell(colIndex.amount!).value);
 
-      // Stop at first fully-empty row to avoid scanning footer formulas
-      if (!date && !desc && !dbAcc && !crAcc && amount === '0') continue;
-      if (!date) {
-        if (dbAcc || crAcc || amount !== '0') errors.push({ row: r, message: 'tanggal kosong' });
+      if (dateResult.empty && !desc && !dbAcc && !crAcc && amountResult.ok && amountResult.empty) continue;
+      if (!dateResult.ok) {
+        if (dbAcc || crAcc || !amountResult.empty) errors.push({ row: r, message: dateResult.error });
+        continue;
+      }
+      if (!amountResult.ok) {
+        errors.push({ row: r, message: amountResult.error });
         continue;
       }
       if (!dbAcc || !crAcc) {
         errors.push({ row: r, message: 'akun debet/kredit kosong' });
         continue;
       }
-      if (amount === '0') {
+      if (amountResult.value === '0.00') {
         errors.push({ row: r, message: 'jumlah kosong/nol' });
         continue;
       }
+      const date = dateResult.value;
+      const amount = amountResult.value;
 
       groupCounter++;
       groups.push({
@@ -371,31 +332,49 @@ export async function parseImportFile(
   const rawLines: RawLine[] = [];
   for (let r = headerRow + 1; r <= sheet.rowCount; r++) {
     const row = sheet.getRow(r);
-    const date = parseDate(row.getCell(colIndex.date).value);
+    const dateResult = parseDate(row.getCell(colIndex.date).value);
     const desc = colIndex.description ? cellString(row.getCell(colIndex.description).value) : '';
     const acc = colIndex.account ? cellString(row.getCell(colIndex.account).value) : '';
     const sub = colIndex.subAccount ? cellString(row.getCell(colIndex.subAccount).value) || null : null;
-    const debit = parseAmount(row.getCell(colIndex.debit!).value);
-    const credit = parseAmount(row.getCell(colIndex.credit!).value);
+    const debitResult = parseAmount(row.getCell(colIndex.debit!).value);
+    const creditResult = parseAmount(row.getCell(colIndex.credit!).value);
 
-    if (!acc && debit === '0' && credit === '0') continue;
-    if (!date) {
-      if (acc || debit !== '0' || credit !== '0') errors.push({ row: r, message: 'tanggal kosong' });
+    if (!acc && debitResult.ok && debitResult.empty && creditResult.ok && creditResult.empty) continue;
+    if (!dateResult.ok) {
+      if (acc || !debitResult.empty || !creditResult.empty) errors.push({ row: r, message: dateResult.error });
       continue;
     }
+    if (!debitResult.ok || !creditResult.ok) {
+      const messages = [
+        !debitResult.ok ? `debit: ${debitResult.error}` : null,
+        !creditResult.ok ? `kredit: ${creditResult.error}` : null,
+      ].filter((message): message is string => message !== null);
+      errors.push({ row: r, message: messages.join('; ') });
+      continue;
+    }
+    const debit = debitResult.value;
+    const credit = creditResult.value;
     if (!acc) {
       errors.push({ row: r, message: 'akun kosong' });
       continue;
     }
-    if (debit === '0' && credit === '0') {
+    if (debit === '0.00' && credit === '0.00') {
       errors.push({ row: r, message: 'debit & kredit kosong' });
       continue;
     }
-    if (debit !== '0' && credit !== '0') {
+    if (debit !== '0.00' && credit !== '0.00') {
       errors.push({ row: r, message: 'debit DAN kredit terisi (harus salah satu)' });
       continue;
     }
-    rawLines.push({ rowIndex: r, date, description: desc, account: acc, subAccount: sub, debit, credit });
+    rawLines.push({
+      rowIndex: r,
+      date: dateResult.value,
+      description: desc,
+      account: acc,
+      subAccount: sub,
+      debit,
+      credit,
+    });
   }
 
   // Group consecutive rows by date+description
@@ -523,18 +502,6 @@ export async function commitImport(args: {
   const failures: CommitResult['failures'] = [];
   let importedCount = 0;
 
-  // Pre-load monthly counters once so we don't re-count for every group
-  // (and so concurrent rows in the same month get unique numbers).
-  const txMonthlyCounter = new Map<string, number>(); // key: yyyymm
-  const jMonthlyCounter = new Map<string, number>();
-  await withTenant(tenantId, async (db) => {
-    const txTotal = await db.select({ n: count() }).from(transactions).where(eq(transactions.tenantId, tenantId));
-    const jTotal = await db.select({ n: count() }).from(journals).where(eq(journals.tenantId, tenantId));
-    txMonthlyCounter.set('__total__', txTotal[0]?.n ?? 0);
-    jMonthlyCounter.set('__total__', jTotal[0]?.n ?? 0);
-  });
-  const tenantPrefix = tenantSlug.slice(0, 4).toUpperCase().padEnd(4, 'X');
-
   for (let i = 0; i < groups.length; i++) {
     const g = groups[i]!;
     try {
@@ -545,24 +512,24 @@ export async function commitImport(args: {
         .reduce((a, l) => a.plus(new Decimal(l.debit || '0')), new Decimal(0))
         .toFixed(2);
 
-      const yyyymm = `${txDate.getUTCFullYear()}${String(txDate.getUTCMonth() + 1).padStart(2, '0')}`;
-
-      // Sequence numbers: counter incremented eagerly so retries within the
-      // same call don't reuse a number. Tenant-wide rolling counter (% 9999).
-      const txTotal = (txMonthlyCounter.get('__total__') ?? 0) + 1;
-      txMonthlyCounter.set('__total__', txTotal);
-      const txSeq = String(txTotal % 9999).padStart(4, '0');
-      const transactionNo = `TX-${tenantPrefix}-${yyyymm}-${txSeq}`;
-
-      const jTotal = (jMonthlyCounter.get('__total__') ?? 0) + 1;
-      jMonthlyCounter.set('__total__', jTotal);
-      const jSeq = String(jTotal % 9999).padStart(4, '0');
-      const journalNo = `JRN-${tenantPrefix}-${yyyymm}-${jSeq}`;
-
       // Single tenant-scoped transaction for the whole insert+post pipeline.
       // The deferred journal_lines balance trigger fires at COMMIT — if any
       // step fails the entire group rolls back cleanly.
       await withTenant(tenantId, async (db) => {
+        const transactionNo = await allocateAccountingNumber({
+          tx: db,
+          tenantId,
+          tenantSlug,
+          date: txDate,
+          kind: 'transaction',
+        });
+        const journalNo = await allocateAccountingNumber({
+          tx: db,
+          tenantId,
+          tenantSlug,
+          date: txDate,
+          kind: 'journal',
+        });
         const [t] = await db
           .insert(transactions)
           .values({

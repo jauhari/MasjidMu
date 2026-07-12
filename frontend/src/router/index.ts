@@ -69,6 +69,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/features/transactions/TransactionsView.vue'),
       },
       {
+        path: 'transactions/import/pap',
+        name: 'transactions-import-pap',
+        component: () => import('@/features/transactions/PapImportView.vue'),
+      },
+      {
         path: 'transactions/import',
         name: 'transactions-import',
         component: () => import('@/features/transactions/TransactionImportView.vue'),

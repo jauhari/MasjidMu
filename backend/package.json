@@ -21,6 +21,7 @@
     "gates:sprint5b": "tsx scripts/sprint5b-gates.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
     "@hono/node-server": "^1.13.0",
     "@hono/zod-validator": "^0.8.0",
     "@masjidmu/shared": "workspace:*",

@@ -10,7 +10,7 @@
  *
  * Journal numbering: `JRN-{TENANT4}-{YYYYMM}-{NNNN}` (NNNN = monthly counter).
  */
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { Decimal } from 'decimal.js';
 import { withTenant } from '../../../db/client.js';
 import {
@@ -29,6 +29,7 @@ import {
 } from './state-machine.js';
 import { validateJournalEntries } from '../_validators/financial.js';
 import type { TransactionStatus } from '../types.js';
+import { allocateAccountingNumber } from './numbering.js';
 
 export class TransactionNotFoundError extends Error {
   constructor() {
@@ -157,37 +158,6 @@ export function totalFromLines(lines: LineInput[]): string {
     .toFixed(2);
 }
 
-/** Generate `JRN-{tenant4}-{YYYYMM}-{NNNN}` — atomic via row lock. */
-async function generateJournalNo(
-  tenantId: string,
-  tenantSlug: string,
-  date: Date,
-): Promise<string> {
-  const yyyymm = `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-  return withTenant(tenantId, async (tx) => {
-    // Advisory lock: serialise journal number generation per tenant.
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${tenantId}))`);
-    const tenantPrefix = tenantSlug.slice(0, 4).toUpperCase().padEnd(4, 'X');
-    // Extract MAX sequence from existing journal_no untuk tenant + bulan ini.
-    // Pakai MAX (bukan COUNT) supaya setelah force-edit (hapus jurnal lama),
-    // nomor gak mundur dan bentrok sama jurnal yg udah pernah ada.
-    const maxResult = await tx.execute(sql`
-      SELECT journal_no FROM journals
-       WHERE tenant_id = ${tenantId}
-         AND journal_no LIKE ${`JRN-${tenantPrefix}-${yyyymm}-%`}
-       ORDER BY journal_no DESC
-       LIMIT 1
-    `);
-    const lastJournal = (maxResult.rows[0] as { journal_no: string } | undefined)?.journal_no;
-    let seq = 1;
-    if (lastJournal) {
-      const match = lastJournal.match(/-(\d{4})$/);
-      if (match) seq = (parseInt(match[1], 10) % 9999) + 1;
-    }
-    return `JRN-${tenantPrefix}-${yyyymm}-${String(seq).padStart(4, '0')}`;
-  });
-}
-
 /**
  * Transition a transaction. Always validates allowed transitions.
  */
@@ -266,7 +236,13 @@ export async function postTransaction(args: {
     );
     if (!v.valid) throw new Error(`validator: ${v.errors.join('; ')}`);
 
-    const journalNo = await generateJournalNo(tenantId, tenantSlug, tx.transactionDate);
+    const journalNo = await allocateAccountingNumber({
+      tx: db,
+      tenantId,
+      tenantSlug,
+      date: tx.transactionDate,
+      kind: 'journal',
+    });
 
     const [j] = await db
       .insert(journals)
@@ -360,7 +336,13 @@ export async function generateJournalForPostedImport(args: {
     );
     if (!v.valid) throw new Error(`validator: ${v.errors.join('; ')}`);
 
-    const journalNo = await generateJournalNo(tenantId, tenantSlug, tx.transactionDate);
+    const journalNo = await allocateAccountingNumber({
+      tx: db,
+      tenantId,
+      tenantSlug,
+      date: tx.transactionDate,
+      kind: 'journal',
+    });
 
     const [j] = await db
       .insert(journals)

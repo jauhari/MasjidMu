@@ -29,6 +29,32 @@ const typeBadge: Record<ChangeEntry['type'], { icon: unknown; label: string; cls
 
 const entries: ChangeEntry[] = [
   {
+    date: '2026-07-13',
+    type: 'feature',
+    title: 'Impor Rekapan PAP dari foto atau Excel',
+    description:
+      'Jalur impor khusus PAP: pilih satu Dana dan mapping Kas/Pendapatan/Beban, periksa hasil ekstraksi sebelum posting, lalu buat transaksi dan jurnal posted secara atomik. Foto memakai Claude Vision hanya untuk transkripsi; OCR tidak pernah memilih akun/dana atau mem-posting tanpa review. Batch memakai fingerprint sumber untuk retry aman tanpa duplikasi dan seluruh journal line membawa tag Dana PSAK 109.',
+    files: [
+      'features/transactions/PapImportView.vue',
+      'modules/accounting/transactions/pap-import.ts',
+      'modules/accounting/transactions/pap-ocr.ts',
+      'modules/accounting/transactions/pap-commit.ts',
+      'db/migrations/sql/095_accounting_import_batches.sql',
+    ],
+  },
+  {
+    date: '2026-07-13',
+    type: 'db',
+    title: 'Audit batch import dan nomor akuntansi aman',
+    description:
+      'Migration 095 menambah audit batch import PAP dengan RLS, status, fingerprint, dana, alasan, jumlah baris, dan hasil commit. Alokasi nomor transaksi/jurnal kini memakai advisory lock per tenant/periode dan tidak lagi berputar setelah 9999, sehingga impor dan input normal tidak saling menghasilkan nomor duplikat.',
+    files: [
+      'db/schema/accounting.ts',
+      'modules/accounting/transactions/numbering.ts',
+      'modules/accounting/transactions/import.ts',
+    ],
+  },
+  {
     date: '2026-07-01',
     type: 'ui',
     title: 'Form Event Baru — layout PRO',

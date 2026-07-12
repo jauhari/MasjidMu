@@ -70,6 +70,7 @@ interface ParsedGroup {
   groupId: string;
   date: string;
   description: string;
+  referenceNo: string | null;
   lines: ParsedLine[];
   totalDebit: string;
   totalCredit: string;
@@ -312,7 +313,7 @@ async function commit(): Promise<void> {
       .map((g) => ({
         date: g.date,
         description: g.description || '(tanpa keterangan)',
-        referenceNo: null,
+        referenceNo: g.referenceNo,
         lines: effectiveLines(g).map((l) => ({
           accountId: effectiveAccountId(l)!,
           debit: l.debit,

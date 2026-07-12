@@ -87,6 +87,8 @@ export function formatApiError(err: unknown, fallback = 'Terjadi kesalahan'): st
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined>;
+  /** Override the default request timeout. Pass 0 to disable the client timeout. */
+  timeoutMs?: number;
 }
 
 let tenantSlug: string | null = null;
@@ -147,7 +149,7 @@ function buildUrl(path: string, query?: RequestOptions['query']): string {
 }
 
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const { body, query, headers, method = 'GET', ...rest } = opts;
+  const { body, query, headers, method = 'GET', timeoutMs = REQUEST_TIMEOUT_MS, signal, ...rest } = opts;
   const url = buildUrl(path, query);
   const isGet = method === 'GET';
 
@@ -179,8 +181,8 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
           : isFormData
             ? (body as FormData)
             : JSON.stringify(body),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       ...rest,
+      signal: signal ?? (timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined),
     });
 
     let parsed: unknown;

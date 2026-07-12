@@ -55,6 +55,25 @@ import {
 } from './service.js';
 import { commitImport, matchAccounts, parseImportFile } from './import.js';
 import { IllegalTransitionError } from './state-machine.js';
+import { allocateAccountingNumber } from './numbering.js';
+import { parsePAPExcel, papCommitSchema } from './pap-import.js';
+import {
+  PAPOCRConfigurationError,
+  PAPOCRInputError,
+  PAPOCRError,
+  PAP_OCR_ALLOWED_MEDIA_TYPES,
+  PAP_OCR_MAX_IMAGES,
+  PAP_OCR_MAX_IMAGE_BYTES,
+  PAP_OCR_MAX_TOTAL_BYTES,
+  parsePAPImages,
+} from './pap-ocr.js';
+import { commitPAPImport } from './pap-commit.js';
+
+function canCommitPAP(c: { get: (k: string) => unknown }): boolean {
+  if (c.get('isSuperAdmin')) return true;
+  const permissions = c.get('permissions') as Set<string> | undefined;
+  return !!permissions?.has('transactions.create') && !!permissions.has('transactions.post');
+}
 
 function canExpressPost(c: {
   get: (k: string) => unknown;
@@ -175,19 +194,6 @@ async function fetchGoogleSheetXlsx(sheetId: string): Promise<Buffer> {
   return Buffer.from(ab);
 }
 
-async function generateTransactionNo(tenantId: string, tenantSlug: string, date: Date): Promise<string> {
-  const yyyymm = `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-  return withTenant(tenantId, async (tx) => {
-    const r = await tx
-      .select({ n: count() })
-      .from(transactions)
-      .where(eq(transactions.tenantId, tenantId));
-    const seq = String(((r[0]?.n ?? 0) % 9999) + 1).padStart(4, '0');
-    const tenantPrefix = tenantSlug.slice(0, 4).toUpperCase().padEnd(4, 'X');
-    return `TX-${tenantPrefix}-${yyyymm}-${seq}`;
-  });
-}
-
 function mapErrorToResponse(e: unknown): { status: 400 | 404 | 409 | 422; body: { error: string; detail?: string } } {
   if (e instanceof TransactionNotFoundError) return { status: 404, body: { error: 'not_found' } };
   if (e instanceof UnbalancedLinesError) return { status: 422, body: { error: 'unbalanced', detail: `D=${e.debit} C=${e.credit}` } };
@@ -205,6 +211,80 @@ export const transactionsRoute = new Hono<{
   .use('*', requireSession())
   .use('*', requireTenant())
   .use('*', auditInterceptor())
+
+  .post('/_import/pap/parse-excel', requirePermission('transactions.create'), async (c) => {
+    const body = await c.req.parseBody();
+    const file = body.file;
+    if (!(file instanceof File)) return c.json({ error: 'file_required' }, 400);
+    if (file.size > 20 * 1024 * 1024) return c.json({ error: 'file_too_large' }, 413);
+    try {
+      const result = await parsePAPExcel(new Uint8Array(await file.arrayBuffer()),
+        typeof body.sheet === 'string' ? body.sheet : undefined);
+      return c.json({ data: result });
+    } catch (error) {
+      return c.json({ error: 'pap_excel_invalid', detail: (error as Error).message }, 422);
+    }
+  })
+
+  .post('/_import/pap/parse-images', requirePermission('transactions.create'), async (c) => {
+    const form = await c.req.formData();
+    const files = form.getAll('files').filter((value): value is File => value instanceof File);
+    if (files.length === 0 || files.length > PAP_OCR_MAX_IMAGES) {
+      return c.json({ error: 'invalid_image_count', max: PAP_OCR_MAX_IMAGES }, 400);
+    }
+    const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+    if (totalBytes > PAP_OCR_MAX_TOTAL_BYTES) {
+      return c.json({ error: 'images_too_large', max: PAP_OCR_MAX_TOTAL_BYTES }, 413);
+    }
+    try {
+      const images = await Promise.all(files.map(async (file) => {
+        if (!PAP_OCR_ALLOWED_MEDIA_TYPES.includes(file.type as never)) {
+          throw new PAPOCRInputError(`tipe gambar tidak didukung: ${file.type}`);
+        }
+        if (file.size > PAP_OCR_MAX_IMAGE_BYTES) throw new PAPOCRInputError('gambar terlalu besar');
+        return {
+          bytes: new Uint8Array(await file.arrayBuffer()),
+          mediaType: file.type as (typeof PAP_OCR_ALLOWED_MEDIA_TYPES)[number],
+          name: file.name,
+        };
+      }));
+      return c.json({ data: await parsePAPImages(images) });
+    } catch (error) {
+      if (error instanceof PAPOCRInputError) {
+        return c.json({ error: 'pap_ocr_invalid', detail: error.message }, 400);
+      }
+      if (error instanceof PAPOCRConfigurationError) {
+        return c.json({ error: 'ocr_not_configured', detail: error.message }, 503);
+      }
+      if (error instanceof PAPOCRError) {
+        return c.json({ error: 'pap_ocr_failed', detail: error.message }, 502);
+      }
+      return c.json({ error: 'pap_ocr_failed', detail: (error as Error).message }, 500);
+    }
+  })
+
+  .post('/_import/pap/commit', zValidator('json', papCommitSchema), async (c) => {
+    if (!canCommitPAP(c)) return c.json({ error: 'forbidden', required: 'transactions.create+transactions.post' }, 403);
+    const tenantId = c.get('tenantId')!;
+    const tenant = c.get('tenant')!;
+    const user = await resolveActingUser(c.get('user')!, tenantId, !!c.get('isSuperAdmin'));
+    if (!user) return c.json({ error: 'tenant_user_missing' }, 422);
+    try {
+      const result = await commitPAPImport({
+        tenantId,
+        tenantSlug: tenant.slug,
+        appUserId: user.id,
+        input: c.req.valid('json'),
+      });
+      if (!result.duplicate) {
+        const { refreshReportsAfterPosting } = await import('../../../lib/cron/refresh-mat-views.js');
+        await refreshReportsAfterPosting();
+      }
+      return c.json({ data: result }, result.duplicate ? 200 : 201);
+    } catch (error) {
+      return c.json({ error: 'pap_commit_failed', detail: (error as Error).message }, 422);
+    }
+  })
 
   .get('/', requirePermission('transactions.read'), async (c) => {
     const tenantId = c.get('tenantId')!;
@@ -411,10 +491,16 @@ export const transactionsRoute = new Hono<{
       return c.json(m.body, m.status);
     }
 
-    const transactionNo = await generateTransactionNo(tenantId, tenant.slug, body.transactionDate);
     const totalAmount = totalFromLines(body.lines);
 
     const created = await withTenant(tenantId, async (tx) => {
+      const transactionNo = await allocateAccountingNumber({
+        tx,
+        tenantId,
+        tenantSlug: tenant.slug,
+        date: body.transactionDate,
+        kind: 'transaction',
+      });
       const [t] = await tx
         .insert(transactions)
         .values({
@@ -893,6 +979,10 @@ export const transactionsRoute = new Hono<{
           reason: body.reason,
           groups: body.groups,
         });
+        if (result.importedCount > 0) {
+          const { refreshReportsAfterPosting } = await import('../../../lib/cron/refresh-mat-views.js');
+          await refreshReportsAfterPosting();
+        }
         return c.json({ data: result });
       } catch (e) {
         return c.json({ error: 'import_failed', detail: (e as Error).message }, 500);

@@ -5,6 +5,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -278,6 +279,39 @@ export const journals = pgTable(
   }),
 );
 
+export const accountingImportBatches = pgTable(
+  'accounting_import_batches',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tenantId: uuid()
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    importType: varchar({ length: 50 }).notNull(),
+    sourceType: varchar({ length: 20 }),
+    sourceFingerprint: varchar({ length: 64 }).notNull(),
+    payloadFingerprint: varchar({ length: 64 }).notNull(),
+    fundId: uuid().references(() => funds.id),
+    reason: text(),
+    rowCount: integer().notNull(),
+    importedCount: integer(),
+    status: varchar({ length: 20 }).default('processing').notNull(),
+    result: jsonb().$type<Record<string, unknown> | null>(),
+    error: text(),
+    createdBy: uuid()
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    committedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => ({
+    uniqueTenantSource: unique().on(t.tenantId, t.importType, t.sourceFingerprint),
+    tenantStatusIdx: index().on(t.tenantId, t.status),
+    payloadIdx: index().on(t.payloadFingerprint),
+    validStatus: check('accounting_import_batch_status_check', sql`${t.status} IN ('processing', 'committed', 'failed')`),
+  }),
+);
+
 export const journalLines = pgTable(
   'journal_lines',
   {
@@ -315,3 +349,4 @@ export type Transaction = typeof transactions.$inferSelect;
 export type TransactionLine = typeof transactionLines.$inferSelect;
 export type Journal = typeof journals.$inferSelect;
 export type JournalLine = typeof journalLines.$inferSelect;
+export type AccountingImportBatch = typeof accountingImportBatches.$inferSelect;

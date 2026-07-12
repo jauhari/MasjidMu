@@ -1,8 +1,9 @@
 import { config } from 'dotenv';
 import { z } from 'zod';
 
-// Load .env.local first (highest priority for local dev), then .env as fallback
-config({ path: '.env.local' });
+// Local development settings must win over shell-level provider overrides.
+// Production relies on its process environment because .env.local is absent there.
+config({ path: '.env.local', override: true });
 config({ path: '.env' });
 
 const envSchema = z.object({
@@ -23,6 +24,9 @@ const envSchema = z.object({
   // authorized redirect URI: {BETTER_AUTH_URL}/api/auth/callback/google
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+
+  // Required only by the PAP image-import endpoint.
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
 
   // Unused by the hot path (rate-limit/permission/report caches are
   // in-memory, see middleware/rate-limit.ts, middleware/permission.ts,

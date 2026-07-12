@@ -17,6 +17,13 @@ pnpm dev
 # → http://localhost:3000/healthz
 ```
 
+## Impor Rekapan PAP
+
+Impor khusus Rekapan PAP tersedia dari **Transaksi → Impor Rekapan PAP**. Mendukung Excel dan foto/scan dengan review manusia wajib sebelum transaksi diposting.
+
+- Panduan operasi, format sumber, konfigurasi OCR, dan pengamanan: [`docs/PAP_IMPORT.md`](docs/PAP_IMPORT.md)
+- Jalankan migration: `pnpm --dir backend db:migrate`
+
 ## Stack
 
 - **Runtime**: Node 20 + TypeScript
