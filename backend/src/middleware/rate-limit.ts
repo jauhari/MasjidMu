@@ -1,5 +1,10 @@
 /**
- * Rate limiter middleware (Upstash sliding window).
+ * Rate limiter middleware — in-process sliding window (no external store).
+ *
+ * Was Upstash-backed; moved in-memory because the per-request Redis round
+ * trip added a hard external dependency (and fail-closed on any Upstash
+ * hiccup) for a single-instance deployment that didn't need it. Revisit if
+ * this ever scales to multiple instances needing a shared limit.
  *
  * Three preset limiters:
  *   • login:  5 / 15min  per IP        — guards /api/auth/sign-in/*
@@ -13,49 +18,43 @@
  *
  * On limit: returns 429 with `retry-after` header (seconds).
  */
-import { Ratelimit } from '@upstash/ratelimit';
-import { Redis } from '@upstash/redis';
 import type { MiddlewareHandler } from 'hono';
 import { env } from '../lib/env.js';
+import { memGet, memSet } from '../lib/memory-cache.js';
 import type { SessionVars } from './session.js';
 import type { TenantVars } from './tenant.js';
-
-const redis = new Redis({
-  url: env.UPSTASH_REDIS_URL,
-  token: env.UPSTASH_REDIS_TOKEN,
-});
 
 // Looser limits in development so smoke-testing doesn't get throttled.
 const isDev = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
 
-const limiters = {
-  login: new Ratelimit({
-    redis,
-    limiter: isDev
-      ? Ratelimit.slidingWindow(100, '15 m')
-      : Ratelimit.slidingWindow(5, '15 m'),
-    analytics: false,
-    prefix: 'rl:login',
-  }),
-  api: new Ratelimit({
-    redis,
-    limiter: isDev
-      ? Ratelimit.slidingWindow(1000, '1 m')
-      : Ratelimit.slidingWindow(100, '1 m'),
-    analytics: false,
-    prefix: 'rl:api',
-  }),
-  export: new Ratelimit({
-    redis,
-    limiter: isDev
-      ? Ratelimit.slidingWindow(100, '1 h')
-      : Ratelimit.slidingWindow(10, '1 h'),
-    analytics: false,
-    prefix: 'rl:export',
-  }),
+const LIMITS = {
+  login: { count: isDev ? 100 : 5, windowMs: 15 * 60_000 },
+  api: { count: isDev ? 1000 : 100, windowMs: 60_000 },
+  export: { count: isDev ? 100 : 10, windowMs: 60 * 60_000 },
 } as const;
 
-type LimiterKind = keyof typeof limiters;
+type LimiterKind = keyof typeof LIMITS;
+
+interface LimitResult {
+  success: boolean;
+  limit: number;
+  remaining: number;
+  reset: number;
+}
+
+/** Sliding window over an in-memory timestamp list — same shape as Upstash's. */
+function slidingWindowLimit(key: string, count: number, windowMs: number): LimitResult {
+  const now = Date.now();
+  const hits = (memGet<number[]>(key) ?? []).filter((t) => t > now - windowMs);
+
+  if (hits.length >= count) {
+    return { success: false, limit: count, remaining: 0, reset: hits[0]! + windowMs };
+  }
+
+  hits.push(now);
+  memSet(key, hits, Math.ceil(windowMs / 1000));
+  return { success: true, limit: count, remaining: count - hits.length, reset: now + windowMs };
+}
 
 function clientIp(c: Parameters<MiddlewareHandler>[0]): string {
   const fwd = c.req.header('x-forwarded-for');
@@ -67,9 +66,6 @@ export const rateLimit = (
   kind: LimiterKind,
 ): MiddlewareHandler<{ Variables: SessionVars & TenantVars }> =>
   async (c, next) => {
-    // Local dev: skip Upstash — each call can add seconds of latency.
-    if (isDev) return next();
-
     let key: string;
     switch (kind) {
       case 'login':
@@ -83,21 +79,17 @@ export const rateLimit = (
         break;
     }
 
-    try {
-      const { success, limit, remaining, reset } = await limiters[kind].limit(key);
+    const { count, windowMs } = LIMITS[kind];
+    const { success, limit, remaining, reset } = slidingWindowLimit(`rl:${kind}:${key}`, count, windowMs);
 
-      c.header('X-RateLimit-Limit', String(limit));
-      c.header('X-RateLimit-Remaining', String(remaining));
-      c.header('X-RateLimit-Reset', String(reset));
+    c.header('X-RateLimit-Limit', String(limit));
+    c.header('X-RateLimit-Remaining', String(remaining));
+    c.header('X-RateLimit-Reset', String(reset));
 
-      if (!success) {
-        const retryAfter = Math.max(1, Math.ceil((reset - Date.now()) / 1000));
-        c.header('Retry-After', String(retryAfter));
-        return c.json({ error: 'rate_limited', retryAfter }, 429);
-      }
-    } catch {
-      // Upstash may be unreachable in local dev — don't block auth/API.
-      if (!isDev) throw new Error('rate_limit_backend_unavailable');
+    if (!success) {
+      const retryAfter = Math.max(1, Math.ceil((reset - Date.now()) / 1000));
+      c.header('Retry-After', String(retryAfter));
+      return c.json({ error: 'rate_limited', retryAfter }, 429);
     }
 
     return next();

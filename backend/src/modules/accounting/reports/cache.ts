@@ -1,5 +1,9 @@
 /**
- * Report cache — wraps Redis to memoize JSON report bodies for 5 minutes.
+ * Report cache — memoizes JSON report bodies in-process for 5 minutes.
+ *
+ * In-memory (not Redis) — a per-instance cache is enough at single-instance
+ * scale and removes a hard external dependency. Revisit if this ever runs as
+ * multiple instances needing a shared cache.
  *
  * Keys: `report:{tenantId}:{reportType}:{periodKey}[:cmp:{compareKey}]`
  * Values: JSON-serialized response body.
@@ -9,11 +13,7 @@
  * to avoid serving balances older than the latest mat view snapshot.
  */
 import { memClearPrefix, memGet, memSet } from '../../../lib/memory-cache.js';
-import { redis } from '../../../lib/redis.js';
-import { env } from '../../../lib/env.js';
 import type { ReportPeriod, ReportType } from './types.js';
-
-const isDev = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
 
 const TTL_SECONDS = 5 * 60;
 
@@ -35,25 +35,11 @@ export function reportCacheKey(
 }
 
 export async function getCachedReport<T>(key: string): Promise<T | null> {
-  if (isDev) return memGet<T>(key);
-  try {
-    const raw = await redis.get<T>(key);
-    return raw ?? null;
-  } catch {
-    throw new Error('report_cache_unavailable');
-  }
+  return memGet<T>(key);
 }
 
 export async function setCachedReport<T>(key: string, value: T): Promise<void> {
-  if (isDev) {
-    memSet(key, value, TTL_SECONDS);
-    return;
-  }
-  try {
-    await redis.set(key, value, { ex: TTL_SECONDS });
-  } catch {
-    throw new Error('report_cache_unavailable');
-  }
+  memSet(key, value, TTL_SECONDS);
 }
 
 /**
@@ -61,23 +47,5 @@ export async function setCachedReport<T>(key: string, value: T): Promise<void> {
  * Called by the mat-view refresh cron and by accounts/transactions mutations.
  */
 export async function invalidateTenantReports(tenantId: string): Promise<number> {
-  if (isDev) return memClearPrefix(`report:${tenantId}:`);
-  try {
-    const pattern = `report:${tenantId}:*`;
-    // Upstash REST exposes scan via cursor; we batch-delete to keep payload small.
-    let cursor = '0';
-    let deleted = 0;
-    do {
-      const [next, keys] = await redis.scan(cursor, { match: pattern, count: 200 });
-      cursor = String(next);
-      if (keys.length > 0) {
-        await redis.del(...keys);
-        deleted += keys.length;
-      }
-    } while (cursor !== '0');
-    return deleted;
-  } catch {
-    if (!isDev) throw new Error('report_cache_unavailable');
-    return 0;
-  }
+  return memClearPrefix(`report:${tenantId}:`);
 }

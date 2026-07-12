@@ -2,8 +2,13 @@
  * Permission middleware.
  *
  * Loads the current user's permission codes (via roles → role_permissions →
- * permissions) for the current tenant, caches in Upstash for 5 min, and
+ * permissions) for the current tenant, caches in-process for 5 min, and
  * exposes a `requirePermission(code)` guard.
+ *
+ * In-memory (not Redis) — a per-instance cache is enough at single-instance
+ * scale and removes a hard external dependency (any Upstash hiccup used to
+ * fail every authenticated request closed). Revisit if this ever runs as
+ * multiple instances needing a shared cache.
  *
  * Cache key: `perms:{tenantId}:{authUserId}`. Invalidate on role/permission
  * change in the relevant module.
@@ -13,8 +18,6 @@ import { and, eq } from 'drizzle-orm';
 import { asSuperAdmin } from '../db/client.js';
 import { permissions, rolePermissions, roles, userRoles, users } from '../db/schema/core.js';
 import { memGet, memSet, memDel } from '../lib/memory-cache.js';
-import { redis } from '../lib/redis.js';
-import { env } from '../lib/env.js';
 import type { SessionVars } from './session.js';
 import type { TenantVars } from './tenant.js';
 
@@ -24,7 +27,6 @@ export type PermissionVars = {
 };
 
 const CACHE_TTL_SEC = 5 * 60;
-const isDev = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
 
 async function loadPermissions(authUserId: string, tenantId: string): Promise<string[]> {
   return asSuperAdmin(async (tx) => {
@@ -55,37 +57,14 @@ async function loadAndCachePermissions(
 ): Promise<Set<string>> {
   const key = `perms:${tenantId}:${authUserId}`;
 
-  if (isDev) {
-    const cached = memGet<string[] | '__empty__'>(key);
-    if (cached === '__empty__') return new Set();
-    if (Array.isArray(cached) && cached.length > 0) return new Set(cached);
-  } else {
-    try {
-      const cached = await redis.smembers(key);
-      if (cached.length > 0) return new Set(cached);
-    } catch {
-      throw new Error('permission_cache_unavailable');
-    }
-  }
+  const cached = memGet<string[] | '__empty__'>(key);
+  if (cached === '__empty__') return new Set();
+  if (Array.isArray(cached) && cached.length > 0) return new Set(cached);
 
   const perms = await loadPermissions(authUserId, tenantId);
 
-  if (isDev) {
-    if (perms.length > 0) memSet(key, perms, CACHE_TTL_SEC);
-    else memSet(key, '__empty__', 30);
-    return new Set(perms);
-  }
-
-  try {
-    if (perms.length > 0) {
-      await redis.sadd(key, perms[0]!, ...perms.slice(1));
-      await redis.expire(key, CACHE_TTL_SEC);
-    } else {
-      await redis.set(key, '', { ex: 30 });
-    }
-  } catch {
-    throw new Error('permission_cache_unavailable');
-  }
+  if (perms.length > 0) memSet(key, perms, CACHE_TTL_SEC);
+  else memSet(key, '__empty__', 30);
 
   return new Set(perms);
 }
@@ -96,19 +75,9 @@ const superAdminCacheKey = (authUserId: string) => `superadmin:${authUserId}`;
 async function isSuperAdminForUser(authUserId: string): Promise<boolean> {
   const key = superAdminCacheKey(authUserId);
 
-  if (isDev) {
-    const cached = memGet<string>(key);
-    if (cached === '1') return true;
-    if (cached === '0') return false;
-  } else {
-    try {
-      const cached = await redis.get(key);
-      if (cached === '1') return true;
-      if (cached === '0') return false;
-    } catch {
-      throw new Error('permission_cache_unavailable');
-    }
-  }
+  const cached = memGet<string>(key);
+  if (cached === '1') return true;
+  if (cached === '0') return false;
 
   const isAdmin = await asSuperAdmin(async (tx) => {
     const r = await tx
@@ -121,15 +90,7 @@ async function isSuperAdminForUser(authUserId: string): Promise<boolean> {
     return r.length > 0;
   });
 
-  if (isDev) {
-    memSet(key, isAdmin ? '1' : '0', CACHE_TTL_SEC);
-  } else {
-    try {
-      await redis.set(key, isAdmin ? '1' : '0', { ex: CACHE_TTL_SEC });
-    } catch {
-      throw new Error('permission_cache_unavailable');
-    }
-  }
+  memSet(key, isAdmin ? '1' : '0', CACHE_TTL_SEC);
 
   return isAdmin;
 }
@@ -186,10 +147,5 @@ export async function invalidatePermissionCache(
   authUserId: string,
   tenantId: string,
 ): Promise<void> {
-  const key = `perms:${tenantId}:${authUserId}`;
-  if (isDev) {
-    memDel(key);
-    return;
-  }
-  await redis.del(key);
+  memDel(`perms:${tenantId}:${authUserId}`);
 }

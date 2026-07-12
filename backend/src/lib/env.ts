@@ -17,8 +17,12 @@ const envSchema = z.object({
   BETTER_AUTH_SECRET: z.string().min(32, 'BETTER_AUTH_SECRET must be ≥ 32 chars'),
   BETTER_AUTH_URL: z.string().url(),
 
-  UPSTASH_REDIS_URL: z.string().url(),
-  UPSTASH_REDIS_TOKEN: z.string().min(1),
+  // Unused by the hot path (rate-limit/permission/report caches are
+  // in-memory, see middleware/rate-limit.ts, middleware/permission.ts,
+  // modules/accounting/reports/cache.ts) — kept optional for lib/redis.ts,
+  // dormant until something needs a shared cross-instance store again.
+  UPSTASH_REDIS_URL: z.string().url().optional(),
+  UPSTASH_REDIS_TOKEN: z.string().min(1).optional(),
 
   R2_ACCOUNT_ID: z.string().min(1),
   R2_ACCESS_KEY: z.string().min(1),

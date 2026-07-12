@@ -79,11 +79,6 @@ app.get('/healthz', (c) =>
   c.json({ status: 'ok', time: new Date().toISOString(), version: '0.0.0' }),
 );
 
-// TEMP debug — remove after diagnosing tenant-header host matching.
-app.get('/__debug/host', (c) =>
-  c.json({ host: c.req.header('host') ?? null, xfh: c.req.header('x-forwarded-host') ?? null }),
-);
-
 app.get('/', (c) => c.text('HisabMu API v2'));
 
 // ─── Auth ────────────────────────────────────────────────────────────────
