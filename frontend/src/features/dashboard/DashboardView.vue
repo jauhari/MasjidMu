@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onActivated, onMounted, ref } from 'vue';
+import { computed, nextTick, onActivated, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { format, subMonths } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
@@ -96,13 +96,14 @@ const events = ref<EventItem[]>([]);
 const mosqueName = ref(auth.tenantDisplayName || 'HisabMu');
 const fundUsage = ref<FundUsageData['data'] | null>(null);
 const cashFlowMonths = ref<{ month: number; year: number; income: number; expense: number }[]>([]);
+const selectedCashFlowKey = ref<string | null>(null);
+const cashFlowViewport = ref<HTMLElement | null>(null);
 const recentTxns = ref<TxListItem[]>([]);
 
 // Pakai waktu lokal (bukan UTC) supaya "bulan ini" cocok dengan input user di Indonesia.
 const now = new Date();
-const month = now.getMonth() + 1;
-const year = now.getFullYear();
-const monthName = format(now, 'MMMM', { locale: localeId });
+const reportPeriod = ref({ month: now.getMonth() + 1, year: now.getFullYear(), date: now });
+const monthName = computed(() => format(reportPeriod.value.date, 'MMMM', { locale: localeId }));
 const todayLong = format(now, "EEEE, d MMMM yyyy", { locale: localeId });
 const lastLoadedAt = ref<Date | null>(null);
 const lastLoadedLabel = computed(() => {
@@ -258,8 +259,8 @@ const fundRows = computed(() =>
             query: {
               type: 'buku-dana',
               fundId,
-              month: String(month),
-              year: String(year),
+              month: String(reportPeriod.value.month),
+              year: String(reportPeriod.value.year),
             },
           }
         : null,
@@ -299,28 +300,110 @@ function fmtRupiah(n: number): string {
   }).format(n);
 }
 
-const chartMax = computed(() =>
-  Math.max(...cashFlowMonths.value.flatMap((m) => [m.income, m.expense]), 1),
-);
-const chartBars = computed(() =>
-  cashFlowMonths.value.map((m) => {
-    const monthLabel = format(new Date(m.year, m.month - 1, 1), 'MMMM yyyy', { locale: localeId });
+function compactAmount(value: number, withCurrency = true): string {
+  const absolute = Math.abs(value);
+  const units = [
+    { threshold: 1_000_000_000, divisor: 1_000_000_000, suffix: 'miliar' },
+    { threshold: 1_000_000, divisor: 1_000_000, suffix: 'jt' },
+    { threshold: 1_000, divisor: 1_000, suffix: 'rb' },
+  ];
+  const unit = units.find((item) => absolute >= item.threshold);
+  const amount = unit ? absolute / unit.divisor : absolute;
+  const formatted = new Intl.NumberFormat('id-ID', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: amount < 100 && !Number.isInteger(amount) ? 1 : 0,
+  }).format(amount);
+  return `${withCurrency ? 'Rp ' : ''}${formatted}${unit ? ` ${unit.suffix}` : ''}`;
+}
+
+const NUMBER_WORDS = [
+  'nol',
+  'satu',
+  'dua',
+  'tiga',
+  'empat',
+  'lima',
+  'enam',
+  'tujuh',
+  'delapan',
+  'sembilan',
+  'sepuluh',
+  'sebelas',
+  'dua belas',
+];
+
+function cashFlowKey(monthValue: number, yearValue: number): string {
+  return `${yearValue}-${String(monthValue).padStart(2, '0')}`;
+}
+
+function selectCashFlowMonth(key: string): void {
+  selectedCashFlowKey.value = key;
+}
+
+async function revealLatestCashFlowMonth(): Promise<void> {
+  await nextTick();
+  const viewport = cashFlowViewport.value;
+  if (viewport) viewport.scrollLeft = viewport.scrollWidth;
+}
+
+const chartModel = computed(() => {
+  const rows = cashFlowMonths.value.map((item) => {
+    const income = Number.isFinite(item.income) ? Math.max(0, item.income) : 0;
+    const expense = Number.isFinite(item.expense) ? Math.max(0, item.expense) : 0;
+    const net = income - expense;
+    const date = new Date(item.year, item.month - 1, 1);
     return {
-      label: format(new Date(m.year, m.month - 1, 1), 'MMM', { locale: localeId }),
-      inH: Math.max(6, Math.round((m.income / chartMax.value) * 128)),
-      outH: Math.max(6, Math.round((m.expense / chartMax.value) * 128)),
-      inTitle: `Pemasukan ${monthLabel}: ${fmtRupiah(m.income)}`,
-      outTitle: `Pengeluaran ${monthLabel}: ${fmtRupiah(m.expense)}`,
+      key: cashFlowKey(item.month, item.year),
+      month: item.month,
+      year: item.year,
+      income,
+      expense,
+      net,
+      label: format(date, 'MMM', { locale: localeId }),
+      fullLabel: format(date, 'MMMM yyyy', { locale: localeId }),
     };
-  }),
-);
-const chartRangeLabel = computed(() => {
-  if (cashFlowMonths.value.length < 2) return format(now, 'yyyy');
-  const first = cashFlowMonths.value[0];
-  const last = cashFlowMonths.value[cashFlowMonths.value.length - 1];
-  const a = format(new Date(first.year, first.month - 1, 1), 'MMMM', { locale: localeId });
-  const b = format(new Date(last.year, last.month - 1, 1), 'MMMM yyyy', { locale: localeId });
-  return `${a} – ${b}`;
+  });
+
+  const selected = rows.find((row) => row.key === selectedCashFlowKey.value) ?? rows.at(-1) ?? null;
+  const max = Math.max(...rows.flatMap((row) => [row.income, row.expense]), 1);
+  const bars = rows.map((row) => {
+    const inH = row.income > 0 ? Math.max(5, Math.round((row.income / max) * 92)) : 0;
+    const outH = row.expense > 0 ? Math.max(5, Math.round((row.expense / max) * 92)) : 0;
+    const status = row.net > 0 ? 'surplus' : row.net < 0 ? 'defisit' : 'impas';
+    const sign = row.net > 0 ? '+' : row.net < 0 ? '−' : '';
+    return {
+      ...row,
+      isActive: row.key === selected?.key,
+      inH,
+      outH,
+      labelBottom: Math.max(inH, outH) + 5,
+      status,
+      netLabel: `${sign}${compactAmount(row.net, false)}`,
+      inTitle: `Pemasukan ${row.fullLabel}: ${fmtRupiah(row.income)}`,
+      outTitle: `Pengeluaran ${row.fullLabel}: ${fmtRupiah(row.expense)}`,
+      ariaLabel: `${row.fullLabel}, pemasukan ${fmtRupiah(row.income)}, pengeluaran ${fmtRupiah(row.expense)}, ${status} ${fmtRupiah(Math.abs(row.net))}`,
+    };
+  });
+
+  const first = rows[0];
+  const latest = rows.at(-1) ?? null;
+  const range = first && latest
+    ? `${format(new Date(cashFlowMonths.value[0]!.year, cashFlowMonths.value[0]!.month - 1, 1), 'MMMM', { locale: localeId })} – ${latest.fullLabel}`
+    : '';
+  const positiveCount = rows.filter((row) => row.net > 0).length;
+  const negativeCount = rows.filter((row) => row.net < 0).length;
+  const totalNet = rows.reduce((total, row) => total + row.net, 0);
+  const countText = NUMBER_WORDS[rows.length] ?? String(rows.length);
+  let trend = `${positiveCount} dari ${rows.length} bulan surplus`;
+  if (rows.length > 0 && positiveCount === rows.length) trend = `${countText} bulan berturut surplus`;
+  if (rows.length > 0 && negativeCount === rows.length) trend = `${countText} bulan berturut defisit`;
+  const totalLabel = `${totalNet < 0 ? '−' : ''}${compactAmount(totalNet)}`;
+
+  return {
+    bars,
+    selected,
+    subtitle: rows.length ? `${range} · ${trend}, ${positiveCount === rows.length || negativeCount === rows.length ? 'total' : 'net'} ${totalLabel}` : '',
+  };
 });
 
 // ─── Transactions ──────────────────────────────────────────────────────────
@@ -449,8 +532,11 @@ async function loadDashboard(opts?: { silent?: boolean }): Promise<void> {
   void refData.ensureFunds();
   void refData.ensureCategories();
 
-  const fromIso = new Date().toISOString();
   const loadNow = new Date();
+  const fromIso = loadNow.toISOString();
+  const currentMonth = loadNow.getMonth() + 1;
+  const currentYear = loadNow.getFullYear();
+  reportPeriod.value = { month: currentMonth, year: currentYear, date: loadNow };
 
   const contentP = (async () => {
     try {
@@ -478,10 +564,16 @@ async function loadDashboard(opts?: { silent?: boolean }): Promise<void> {
   const kpiP = (async () => {
     try {
       const [bs, act, fu] = await Promise.all([
-        api.get<BalanceSheet>('/api/v1/reports/posisi-keuangan', { query: { month, year } }),
-        api.get<ActivitySummary>('/api/v1/reports/aktivitas', { query: { month, year } }),
+        api.get<BalanceSheet>('/api/v1/reports/posisi-keuangan', {
+          query: { month: currentMonth, year: currentYear },
+        }),
+        api.get<ActivitySummary>('/api/v1/reports/aktivitas', {
+          query: { month: currentMonth, year: currentYear },
+        }),
         api
-          .get<FundUsageData>('/api/v1/reports/sumber-penggunaan-dana', { query: { month, year } })
+          .get<FundUsageData>('/api/v1/reports/sumber-penggunaan-dana', {
+            query: { month: currentMonth, year: currentYear },
+          })
           .catch(() => null),
       ]);
       balance.value = bs;
@@ -498,7 +590,8 @@ async function loadDashboard(opts?: { silent?: boolean }): Promise<void> {
 
   const chartP = (async () => {
     try {
-      const points = Array.from({ length: 6 }, (_, i) => subMonths(loadNow, 5 - i));
+      const monthStart = new Date(currentYear, currentMonth - 1, 1);
+      const points = Array.from({ length: 12 }, (_, i) => subMonths(monthStart, 11 - i));
       const results = await Promise.all(
         points.map((d) =>
           api.get<ActivitySummary>('/api/v1/reports/aktivitas', {
@@ -512,8 +605,17 @@ async function loadDashboard(opts?: { silent?: boolean }): Promise<void> {
         income: Number(results[i]!.data.income.total),
         expense: Number(results[i]!.data.expense.total),
       }));
+      const availableKeys = new Set(
+        cashFlowMonths.value.map((item) => cashFlowKey(item.month, item.year)),
+      );
+      if (!selectedCashFlowKey.value || !availableKeys.has(selectedCashFlowKey.value)) {
+        const latest = cashFlowMonths.value.at(-1);
+        selectedCashFlowKey.value = latest ? cashFlowKey(latest.month, latest.year) : null;
+      }
+      void revealLatestCashFlowMonth();
     } catch {
       cashFlowMonths.value = [];
+      selectedCashFlowKey.value = null;
     } finally {
       chartLoading.value = false;
     }
@@ -889,53 +991,128 @@ onActivated(() => {
         class="rise rounded-[20px] border border-border/60 bg-card p-5 shadow-xs"
         :style="{ animationDelay: '80ms' }"
       >
-        <div class="mb-5 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 class="text-base font-bold tracking-tight text-foreground">Arus Kas 6 Bulan</h2>
-            <p class="mt-0.5 text-[12px] capitalize text-muted-foreground">{{ chartRangeLabel }}</p>
+        <div class="mb-4 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div class="min-w-0">
+            <h2 class="text-base font-bold tracking-tight text-foreground">Arus Kas 12 Bulan</h2>
+            <p v-if="chartModel.subtitle" class="mt-0.5 text-[11px] text-muted-foreground sm:text-[12px]">
+              {{ chartModel.subtitle }}
+            </p>
           </div>
           <div class="flex items-center gap-4 text-[11px] font-medium text-muted-foreground">
             <span class="inline-flex items-center gap-1.5">
-              <span class="size-2 rounded-full bg-emerald-700"></span>
+              <span class="size-2 rounded-full bg-emerald-700" aria-hidden="true"></span>
               Pemasukan
             </span>
             <span class="inline-flex items-center gap-1.5">
-              <span class="size-2 rounded-full bg-amber-400"></span>
+              <span class="size-2 rounded-full bg-amber-400" aria-hidden="true"></span>
               Pengeluaran
             </span>
           </div>
         </div>
 
-        <div v-if="chartLoading" class="flex h-[160px] items-end gap-5 px-1">
-          <Skeleton
-            v-for="i in 6"
-            :key="i"
-            class="flex-1 rounded-t-md"
-            :style="{ height: 48 + (i % 3) * 24 + 'px' }"
-          />
-        </div>
-        <div v-else-if="chartBars.length" class="flex h-[160px] items-end gap-3 px-1 sm:gap-5">
-          <div
-            v-for="(b, i) in chartBars"
-            :key="i"
-            class="flex h-full flex-1 flex-col items-center justify-end gap-2.5"
-          >
-            <div class="flex w-full flex-1 items-end justify-center gap-1.5">
-              <div
-                :title="b.inTitle"
-                class="w-[11px] cursor-default rounded-t-[5px] bg-gradient-to-t from-emerald-800 to-emerald-500 transition-all duration-500 sm:w-3"
-                :style="{ height: b.inH + 'px' }"
-              ></div>
-              <div
-                :title="b.outTitle"
-                class="w-[11px] cursor-default rounded-t-[5px] bg-gradient-to-t from-amber-600 to-amber-300 transition-all duration-500 sm:w-3"
-                :style="{ height: b.outH + 'px' }"
-              ></div>
+        <template v-if="chartLoading">
+          <div class="overflow-hidden">
+            <div class="flex h-[166px] w-max items-end gap-1 px-0.5 xl:w-full xl:gap-1.5">
+              <div v-for="i in 12" :key="i" class="flex h-full w-[58px] shrink-0 items-end justify-center gap-1 pb-7 xl:w-auto xl:flex-1 xl:gap-1.5">
+                <Skeleton class="w-[10px] rounded-t-md xl:w-3" :style="{ height: 48 + (i % 3) * 22 + 'px' }" />
+                <Skeleton class="w-[10px] rounded-t-md xl:w-3" :style="{ height: 30 + (i % 2) * 25 + 'px' }" />
+              </div>
             </div>
-            <span class="text-[11px] font-medium text-muted-foreground">{{ b.label }}</span>
           </div>
-        </div>
-        <div v-else class="flex h-[160px] items-center justify-center text-sm text-muted-foreground">
+          <div class="grid grid-cols-3 gap-3 border-t border-border/70 pt-3">
+            <div v-for="i in 3" :key="i" class="space-y-2">
+              <Skeleton class="h-3 w-16" />
+              <Skeleton class="h-4 w-20" />
+            </div>
+          </div>
+        </template>
+
+        <template v-else-if="chartModel.bars.length">
+          <figure aria-labelledby="cashflow-chart-title">
+            <figcaption id="cashflow-chart-title" class="sr-only">
+              Perbandingan pemasukan dan pengeluaran dua belas bulan terakhir
+            </figcaption>
+            <div class="relative -mx-1">
+              <div
+                ref="cashFlowViewport"
+                class="overflow-x-auto overscroll-x-contain px-1 pb-1 outline-none [scroll-snap-type:x_proximity] focus-visible:ring-2 focus-visible:ring-emerald-700/60 focus-visible:ring-offset-2 xl:overflow-visible"
+                tabindex="0"
+                role="group"
+                aria-label="Grafik arus kas 12 bulan. Geser horizontal untuk melihat bulan lainnya."
+              >
+                <div class="flex h-[166px] w-max items-stretch gap-1 pr-3 xl:w-full xl:gap-1.5 xl:pr-0">
+                  <button
+                    v-for="b in chartModel.bars"
+                    :key="b.key"
+                    type="button"
+                    class="relative flex w-[58px] shrink-0 cursor-pointer snap-center flex-col items-center justify-end rounded-xl border px-0.5 pb-2 pt-5 outline-none transition-colors hover:bg-[#F7F6F0] focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2 xl:w-auto xl:min-w-0 xl:flex-1 xl:px-1"
+                    :class="b.isActive ? 'border-emerald-700/10 bg-[#F4F3EC]' : 'border-transparent'"
+                    :aria-label="`${b.ariaLabel}. Pilih bulan ini.`"
+                    :aria-pressed="b.isActive"
+                    @click="selectCashFlowMonth(b.key)"
+                  >
+                <span
+                  class="absolute whitespace-nowrap text-[9px] font-semibold tabular-nums sm:text-[10px]"
+                  :class="b.status === 'surplus' ? 'text-emerald-700' : b.status === 'defisit' ? 'text-amber-700' : 'text-muted-foreground'"
+                  :style="{ bottom: b.labelBottom + 28 + 'px' }"
+                >
+                  {{ b.netLabel }}
+                </span>
+                <div class="flex h-[104px] w-full items-end justify-center gap-1 sm:gap-1.5" aria-hidden="true">
+                  <div
+                    :title="b.inTitle"
+                    class="w-[10px] cursor-default rounded-t-[5px] bg-gradient-to-t from-emerald-800 to-emerald-500 transition-all duration-500 sm:w-3.5"
+                    :style="{ height: b.inH + 'px' }"
+                  ></div>
+                  <div
+                    :title="b.outTitle"
+                    class="w-[10px] cursor-default rounded-t-[5px] bg-gradient-to-t from-amber-600 to-amber-300 transition-all duration-500 sm:w-3.5"
+                    :style="{ height: b.outH + 'px' }"
+                  ></div>
+                </div>
+                <span
+                  class="mt-1.5 text-[10px] font-medium capitalize sm:text-[11px]"
+                  :class="b.isActive ? 'font-bold text-foreground' : 'text-muted-foreground'"
+                >
+                  {{ b.label }}
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div class="pointer-events-none absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-card to-transparent xl:hidden" aria-hidden="true"></div>
+              <div class="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-card to-transparent xl:hidden" aria-hidden="true"></div>
+            </div>
+            <p class="mt-1 text-center text-[10px] text-muted-foreground/80 xl:hidden">
+              Geser untuk melihat bulan sebelumnya
+            </p>
+          </figure>
+
+          <dl v-if="chartModel.selected" aria-live="polite" class="mt-2 grid grid-cols-1 gap-2 border-t border-border/70 pt-3 min-[360px]:grid-cols-3 min-[360px]:gap-3">
+            <div class="min-w-0">
+              <dt class="text-[10px] text-muted-foreground sm:text-[11px]">Pemasukan {{ chartModel.selected.label }}</dt>
+              <dd><MoneyText :value="chartModel.selected.income" tone="income" class="text-[13px] font-bold sm:text-sm" /></dd>
+            </div>
+            <div class="min-w-0">
+              <dt class="text-[10px] text-muted-foreground sm:text-[11px]">Pengeluaran {{ chartModel.selected.label }}</dt>
+              <dd><MoneyText :value="chartModel.selected.expense" tone="expense" class="text-[13px] font-bold sm:text-sm" /></dd>
+            </div>
+            <div class="min-w-0">
+              <dt class="text-[10px] text-muted-foreground sm:text-[11px]">
+                {{ chartModel.selected.net > 0 ? 'Surplus' : chartModel.selected.net < 0 ? 'Defisit' : 'Impas' }} {{ chartModel.selected.label }}
+              </dt>
+              <dd>
+                <MoneyText
+                  :value="chartModel.selected.net"
+                  :show-sign="chartModel.selected.net > 0"
+                  tone="auto"
+                  class="text-[13px] font-bold sm:text-sm"
+                />
+              </dd>
+            </div>
+          </dl>
+        </template>
+
+        <div v-else class="flex h-[210px] items-center justify-center text-sm text-muted-foreground">
           Belum ada data arus kas
         </div>
       </div>

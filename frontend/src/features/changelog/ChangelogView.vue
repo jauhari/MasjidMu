@@ -31,6 +31,14 @@ const entries: ChangeEntry[] = [
   {
     date: '2026-07-13',
     type: 'ui',
+    title: 'Dashboard — arus kas rolling 12 bulan',
+    description:
+      'Grafik arus kas kini memuat 12 bulan lintas tahun, dapat digeser di layar kecil, dan setiap bulan dapat dipilih untuk melihat pemasukan, pengeluaran, serta surplus/defisit secara rinci. Dashboard otomatis menyorot bulan terbaru dan laporan ringkas memakai periode aktif saat halaman dimuat.',
+    files: ['features/dashboard/DashboardView.vue'],
+  },
+  {
+    date: '2026-07-13',
+    type: 'ui',
     title: 'Impor foto PAP — paste, rotasi, dan progres jelas',
     description:
       'Foto rekapan kini dapat ditempel dengan Ctrl+V, orientasi EXIF diperbaiki otomatis, dan gambar dapat diputar 90° sebelum OCR. Progres membedakan unggah file dari pemrosesan OCR; gambar rusak atau isi yang tidak sesuai JPEG/PNG/WebP ditolak lebih awal. Override akun per baris tetap khusus Keluar, sedangkan Masuk memakai akun Pendapatan default batch.',
