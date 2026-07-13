@@ -30,6 +30,20 @@ const typeBadge: Record<ChangeEntry['type'], { icon: unknown; label: string; cls
 const entries: ChangeEntry[] = [
   {
     date: '2026-07-13',
+    type: 'ui',
+    title: 'Impor foto PAP — paste, rotasi, dan progres jelas',
+    description:
+      'Foto rekapan kini dapat ditempel dengan Ctrl+V, orientasi EXIF diperbaiki otomatis, dan gambar dapat diputar 90° sebelum OCR. Progres membedakan unggah file dari pemrosesan OCR; gambar rusak atau isi yang tidak sesuai JPEG/PNG/WebP ditolak lebih awal. Override akun per baris tetap khusus Keluar, sedangkan Masuk memakai akun Pendapatan default batch.',
+    files: [
+      'features/transactions/PapImportView.vue',
+      'shared/api/client.ts',
+      'modules/accounting/transactions/pap-ocr.ts',
+      'modules/accounting/transactions/route.ts',
+      'docs/PAP_IMPORT.md',
+    ],
+  },
+  {
+    date: '2026-07-13',
     type: 'feature',
     title: 'Impor Rekapan PAP dari foto atau Excel',
     description:

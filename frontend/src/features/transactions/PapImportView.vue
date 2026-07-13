@@ -10,11 +10,12 @@ import {
   FileSpreadsheet,
   Loader2,
   RotateCcw,
+  RotateCw,
   ShieldAlert,
   Trash2,
   UploadCloud,
 } from 'lucide-vue-next';
-import { api, formatApiError } from '@/shared/api/client';
+import { api, formatApiError, postFormDataWithProgress } from '@/shared/api/client';
 import { useAuthStore } from '@/features/auth/store';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +34,7 @@ import MoneyText from '@/shared/ui/MoneyText.vue';
 type Direction = 'income' | 'expense';
 type Stage = 'source' | 'review' | 'confirm' | 'result';
 type SourceKind = 'images' | 'excel';
+type ImageParsePhase = 'idle' | 'uploading' | 'processing';
 
 interface Fund { id: string; code: string; name: string; isActive?: boolean }
 interface Account {
@@ -75,7 +77,7 @@ interface CommitResult {
   transactions: Array<{ id: string; transactionNo: string }>;
   fundId: string;
 }
-interface ImageFile { file: File; url: string }
+interface ImageFile { file: File; url: string; rotationDegrees: 0 | 90 | 180 | 270 }
 
 const MB = 1024 * 1024;
 const router = useRouter();
@@ -83,9 +85,12 @@ const auth = useAuthStore();
 const stage = ref<Stage>('source');
 const sourceKind = ref<SourceKind>('images');
 const images = ref<ImageFile[]>([]);
+const imageInput = ref<HTMLInputElement | null>(null);
 const excelFile = ref<File | null>(null);
 const sheetName = ref('');
 const parsing = ref(false);
+const imageParsePhase = ref<ImageParsePhase>('idle');
+const uploadProgress = ref<number | null>(null);
 const committing = ref(false);
 const loadingMappings = ref(false);
 const error = ref<string | null>(null);
@@ -170,11 +175,12 @@ async function loadMappings(): Promise<void> {
   }
 }
 
-function onImagesChange(event: Event): void {
-  const input = event.target as HTMLInputElement;
-  const picked = Array.from(input.files ?? []);
-  input.value = '';
-  if (!picked.length) return;
+function resetImageProgress(): void {
+  imageParsePhase.value = 'idle';
+  uploadProgress.value = null;
+}
+function addImages(picked: File[]): void {
+  if (parsing.value || !picked.length) return;
   const permitted = picked.filter((file) => ['image/jpeg', 'image/png', 'image/webp'].includes(file.type));
   if (permitted.length !== picked.length) return void (error.value = 'Gunakan gambar JPEG, PNG, atau WebP.');
   if (permitted.some((file) => file.size > 8 * MB)) return void (error.value = 'Setiap gambar maksimal 8 MB.');
@@ -182,20 +188,44 @@ function onImagesChange(event: Event): void {
   if (combined.length > 5) return void (error.value = 'Maksimal 5 gambar dalam satu impor.');
   if (combined.reduce((sum, file) => sum + file.size, 0) > 20 * MB) return void (error.value = 'Total gambar maksimal 20 MB.');
   error.value = null;
-  images.value.push(...permitted.map((file) => ({ file, url: URL.createObjectURL(file) })));
+  images.value.push(...permitted.map((file) => ({ file, url: URL.createObjectURL(file), rotationDegrees: 0 as const })));
+}
+function onImagesChange(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  if (!parsing.value) addImages(Array.from(input.files ?? []));
+  input.value = '';
+}
+function onImagePaste(event: ClipboardEvent): void {
+  if (parsing.value) return;
+  const files = Array.from(event.clipboardData?.files ?? []);
+  if (!files.length) return;
+  event.preventDefault();
+  addImages(files);
+}
+function openImagePicker(): void {
+  if (!parsing.value) imageInput.value?.click();
 }
 function removeImage(index: number): void {
+  if (parsing.value) return;
   const [removed] = images.value.splice(index, 1);
   if (removed) URL.revokeObjectURL(removed.url);
 }
 function moveImage(index: number, offset: number): void {
+  if (parsing.value) return;
   const target = index + offset;
   if (target < 0 || target >= images.value.length) return;
   const next = [...images.value];
   [next[index], next[target]] = [next[target]!, next[index]!];
   images.value = next;
 }
+function rotateImage(index: number, offset: 90 | -90): void {
+  if (parsing.value) return;
+  const image = images.value[index];
+  if (!image) return;
+  image.rotationDegrees = ((image.rotationDegrees + offset + 360) % 360) as ImageFile['rotationDegrees'];
+}
 function onExcelChange(event: Event): void {
+  if (parsing.value) return;
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0] ?? null;
   input.value = '';
@@ -207,15 +237,29 @@ function onExcelChange(event: Event): void {
 }
 
 async function parseSource(): Promise<void> {
-  if (!sourceReady.value || !mappingsReady.value) return;
+  if (!sourceReady.value || !mappingsReady.value || parsing.value) return;
   parsing.value = true;
   error.value = null;
+  resetImageProgress();
   try {
     const form = new FormData();
     let response: { data: ParseResult };
     if (sourceKind.value === 'images') {
-      images.value.forEach((item) => form.append('files', item.file));
-      response = await api.post<{ data: ParseResult }>('/api/v1/transactions/_import/pap/parse-images', form, { timeoutMs: 120_000 });
+      imageParsePhase.value = 'uploading';
+      images.value.forEach((item) => {
+        form.append('files', item.file);
+        form.append('rotations', String(item.rotationDegrees));
+      });
+      response = await postFormDataWithProgress<{ data: ParseResult }>('/api/v1/transactions/_import/pap/parse-images', form, {
+        timeoutMs: 120_000,
+        onUploadProgress: ({ loaded, total }) => {
+          uploadProgress.value = Math.round((loaded / total) * 100);
+        },
+        onUploadComplete: () => {
+          imageParsePhase.value = 'processing';
+          uploadProgress.value = null;
+        },
+      });
     } else {
       form.append('file', excelFile.value!);
       if (sheetName.value.trim()) form.append('sheet', sheetName.value.trim());
@@ -239,6 +283,7 @@ async function parseSource(): Promise<void> {
     error.value = displayError(err);
   } finally {
     parsing.value = false;
+    resetImageProgress();
   }
 }
 
@@ -290,6 +335,7 @@ function resetAll(): void {
   reason.value = '';
   result.value = null;
   error.value = null;
+  resetImageProgress();
   stage.value = 'source';
 }
 
@@ -324,27 +370,40 @@ onBeforeUnmount(() => images.value.forEach((item) => URL.revokeObjectURL(item.ur
 
     <template v-if="stage === 'source'">
       <div class="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
-        <Card><CardContent class="p-5 sm:p-6">
+        <Card :aria-busy="parsing"><CardContent class="p-5 sm:p-6">
           <div class="mb-5"><h2 class="font-semibold">1. Pilih sumber rekapan</h2><p class="mt-1 text-sm text-muted-foreground">Urutan gambar menentukan urutan halaman yang dibaca.</p></div>
           <div class="mb-5 grid grid-cols-2 rounded-xl bg-muted p-1">
-            <button type="button" class="rounded-lg px-4 py-2.5 text-sm font-medium transition" :class="sourceKind === 'images' ? 'bg-background shadow-sm' : 'text-muted-foreground'" @click="sourceKind = 'images'">
+            <button type="button" class="rounded-lg px-4 py-2.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60" :class="sourceKind === 'images' ? 'bg-background shadow-sm' : 'text-muted-foreground'" :disabled="parsing" @click="sourceKind = 'images'">
               <FileImage class="mr-2 inline size-4" />Foto / scan
             </button>
-            <button type="button" class="rounded-lg px-4 py-2.5 text-sm font-medium transition" :class="sourceKind === 'excel' ? 'bg-background shadow-sm' : 'text-muted-foreground'" @click="sourceKind = 'excel'">
+            <button type="button" class="rounded-lg px-4 py-2.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60" :class="sourceKind === 'excel' ? 'bg-background shadow-sm' : 'text-muted-foreground'" :disabled="parsing" @click="sourceKind = 'excel'">
               <FileSpreadsheet class="mr-2 inline size-4" />Excel
             </button>
           </div>
 
           <div v-if="sourceKind === 'images'" class="space-y-4">
-            <label class="flex cursor-pointer flex-col items-center rounded-xl border-2 border-dashed border-emerald-700/30 bg-emerald-50/40 px-6 py-9 text-center transition hover:border-emerald-700/60 hover:bg-emerald-50">
-              <UploadCloud class="mb-3 size-8 text-emerald-700" /><span class="text-sm font-semibold">Pilih 1–5 gambar rekapan</span><span class="mt-1 text-xs text-muted-foreground">JPEG, PNG, WebP · 8 MB/file · total 20 MB</span>
-              <input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple @change="onImagesChange" />
-            </label>
+            <div
+              role="button"
+              :tabindex="parsing ? -1 : 0"
+              :aria-disabled="parsing"
+              class="flex flex-col items-center rounded-xl border-2 border-dashed border-emerald-700/30 bg-emerald-50/40 px-6 py-9 text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700 focus-visible:ring-offset-2"
+              :class="parsing ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-emerald-700/60 hover:bg-emerald-50'"
+              @click="openImagePicker"
+              @keydown.enter.prevent="openImagePicker"
+              @keydown.space.prevent="openImagePicker"
+              @paste="onImagePaste"
+            >
+              <UploadCloud class="mb-3 size-8 text-emerald-700" />
+              <span class="text-sm font-semibold">Pilih atau paste 1–5 gambar rekapan</span>
+              <span class="mt-1 text-xs text-muted-foreground">Klik area ini, lalu tekan Ctrl+V untuk paste gambar · JPEG, PNG, WebP · 8 MB/file · total 20 MB</span>
+              <span class="mt-1 text-xs text-muted-foreground">Orientasi kamera diperbaiki otomatis. Jika tabel masih miring, putar gambar di bawah.</span>
+              <input ref="imageInput" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple :disabled="parsing" @change="onImagesChange" />
+            </div>
             <div v-if="images.length" class="grid gap-3 sm:grid-cols-2">
               <div v-for="(item, index) in images" :key="item.url" class="flex items-center gap-3 rounded-xl border bg-card p-2.5">
-                <img :src="item.url" :alt="`Pratinjau halaman ${index + 1}`" class="size-16 rounded-lg border object-cover" />
-                <div class="min-w-0 flex-1"><p class="truncate text-sm font-medium">{{ index + 1 }}. {{ item.file.name }}</p><p class="text-xs text-muted-foreground">{{ fileSize(item.file.size) }}</p>
-                  <div class="mt-2 flex gap-1"><Button size="icon" variant="ghost" class="size-7" :disabled="index === 0" aria-label="Pindah ke depan" @click="moveImage(index, -1)"><ArrowLeft class="size-3.5" /></Button><Button size="icon" variant="ghost" class="size-7" :disabled="index === images.length - 1" aria-label="Pindah ke belakang" @click="moveImage(index, 1)"><ArrowRight class="size-3.5" /></Button><Button size="icon" variant="ghost" class="size-7 text-destructive" aria-label="Hapus gambar" @click="removeImage(index)"><Trash2 class="size-3.5" /></Button></div>
+                <img :src="item.url" :alt="`Pratinjau halaman ${index + 1}`" class="size-16 rounded-lg border object-cover transition-transform" :style="{ transform: `rotate(${item.rotationDegrees}deg)` }" />
+                <div class="min-w-0 flex-1"><p class="truncate text-sm font-medium">{{ index + 1 }}. {{ item.file.name }}</p><p class="text-xs text-muted-foreground">{{ fileSize(item.file.size) }}<span v-if="item.rotationDegrees"> · diputar {{ item.rotationDegrees }}°</span></p>
+                  <div class="mt-2 flex gap-1"><Button size="icon" variant="ghost" class="size-7" :disabled="parsing" aria-label="Putar ke kiri" @click="rotateImage(index, -90)"><RotateCcw class="size-3.5" /></Button><Button size="icon" variant="ghost" class="size-7" :disabled="parsing" aria-label="Putar ke kanan" @click="rotateImage(index, 90)"><RotateCw class="size-3.5" /></Button><Button size="icon" variant="ghost" class="size-7" :disabled="parsing || index === 0" aria-label="Pindah ke depan" @click="moveImage(index, -1)"><ArrowLeft class="size-3.5" /></Button><Button size="icon" variant="ghost" class="size-7" :disabled="parsing || index === images.length - 1" aria-label="Pindah ke belakang" @click="moveImage(index, 1)"><ArrowRight class="size-3.5" /></Button><Button size="icon" variant="ghost" class="size-7 text-destructive" :disabled="parsing" aria-label="Hapus gambar" @click="removeImage(index)"><Trash2 class="size-3.5" /></Button></div>
                 </div>
               </div>
             </div>
@@ -352,9 +411,9 @@ onBeforeUnmount(() => images.value.forEach((item) => URL.revokeObjectURL(item.ur
           <div v-else class="space-y-4">
             <label class="flex cursor-pointer flex-col items-center rounded-xl border-2 border-dashed border-emerald-700/30 bg-emerald-50/40 px-6 py-9 text-center transition hover:border-emerald-700/60 hover:bg-emerald-50">
               <FileSpreadsheet class="mb-3 size-8 text-emerald-700" /><span class="text-sm font-semibold">{{ excelFile?.name ?? 'Pilih file Excel' }}</span><span class="mt-1 text-xs text-muted-foreground">.xlsx atau .xlsm · maksimal 20 MB</span>
-              <input class="sr-only" type="file" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" @change="onExcelChange" />
+              <input class="sr-only" type="file" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" :disabled="parsing" @change="onExcelChange" />
             </label>
-            <FormField label="Nama sheet (opsional)" hint="Kosongkan untuk memakai sheet pertama"><Input v-model="sheetName" placeholder="Contoh: Rekapan PAP" /></FormField>
+            <FormField label="Nama sheet (opsional)" hint="Kosongkan untuk memakai sheet pertama"><Input v-model="sheetName" :disabled="parsing" placeholder="Contoh: Rekapan PAP" /></FormField>
           </div>
         </CardContent></Card>
 
@@ -362,16 +421,39 @@ onBeforeUnmount(() => images.value.forEach((item) => URL.revokeObjectURL(item.ur
           <div><h2 class="font-semibold">2. Tentukan dana & akun</h2><p class="mt-1 text-sm text-muted-foreground">Satu file memakai satu dana. Akun pengeluaran dapat diubah per baris nanti.</p></div>
           <div v-if="loadingMappings" class="flex items-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 class="size-4 animate-spin" /> Memuat dana dan akun…</div>
           <template v-else>
-            <FormField label="Dana" required><AppSelect v-model="mapping.fundId" :options="fundOptions" placeholder="Pilih dana untuk seluruh file" /></FormField>
-            <FormField label="Akun kas / bank" required><AccountSelect v-model="mapping.cashAccountId" :accounts="cashAccounts" :filter-type="hasAccountTypes ? 'asset' : undefined" placeholder="Pilih akun aset kas" /></FormField>
-            <FormField label="Akun pemasukan" required><AccountSelect v-model="mapping.incomeAccountId" :accounts="incomeAccounts" :filter-type="hasAccountTypes ? 'income' : undefined" placeholder="Pilih akun pendapatan" /></FormField>
-            <FormField label="Akun pengeluaran default" required><AccountSelect v-model="mapping.defaultExpenseAccountId" :accounts="expenseAccounts" :filter-type="hasAccountTypes ? 'expense' : undefined" placeholder="Pilih akun beban" /></FormField>
+            <FormField label="Dana" required><AppSelect v-model="mapping.fundId" :options="fundOptions" :disabled="parsing" placeholder="Pilih dana untuk seluruh file" /></FormField>
+            <FormField label="Akun kas / bank" required><AccountSelect v-model="mapping.cashAccountId" :accounts="cashAccounts" :disabled="parsing" :filter-type="hasAccountTypes ? 'asset' : undefined" placeholder="Pilih akun aset kas" /></FormField>
+            <FormField label="Akun pemasukan" required><AccountSelect v-model="mapping.incomeAccountId" :accounts="incomeAccounts" :disabled="parsing" :filter-type="hasAccountTypes ? 'income' : undefined" placeholder="Pilih akun pendapatan" /></FormField>
+            <FormField label="Akun pengeluaran default" required><AccountSelect v-model="mapping.defaultExpenseAccountId" :accounts="expenseAccounts" :disabled="parsing" :filter-type="hasAccountTypes ? 'expense' : undefined" placeholder="Pilih akun beban" /></FormField>
             <Alert v-if="accounts.length && !hasAccountTypes" class="border-amber-300 bg-amber-50 text-amber-900"><AlertTriangle class="size-4" /><AlertDescription>Respons akun lite tidak memuat jenis akun. Semua akun ditampilkan; pastikan pemetaan aset, pemasukan, dan pengeluaran sudah benar.</AlertDescription></Alert>
           </template>
           <Button class="mt-2 w-full" :disabled="!sourceReady || !mappingsReady || parsing" @click="parseSource">
-            <Loader2 v-if="parsing" class="size-4 animate-spin" /><UploadCloud v-else class="size-4" />{{ parsing ? 'Membaca rekapan…' : 'Baca & periksa rekapan' }}
+            <Loader2 v-if="parsing" class="size-4 animate-spin" /><UploadCloud v-else class="size-4" />{{ parsing ? (sourceKind === 'images' && imageParsePhase === 'uploading' ? 'Mengunggah gambar…' : 'Membaca rekapan…') : 'Baca & periksa rekapan' }}
           </Button>
-          <p v-if="sourceKind === 'images'" class="text-center text-[11px] text-muted-foreground">Pemrosesan gambar dapat memerlukan waktu hingga 2 menit.</p>
+          <div
+            v-if="sourceKind === 'images' && parsing"
+            class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-center"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <template v-if="imageParsePhase === 'uploading'">
+              <p class="text-xs font-medium text-emerald-900">Mengunggah gambar{{ uploadProgress !== null ? `: ${uploadProgress}%` : '…' }}</p>
+              <progress
+                v-if="uploadProgress !== null"
+                class="mt-2 h-2 w-full accent-emerald-700"
+                :value="uploadProgress"
+                max="100"
+                aria-label="Progres unggah gambar rekapan"
+              />
+              <p class="mt-1 text-[11px] text-emerald-800">Berkas sedang dikirim ke server.</p>
+            </template>
+            <template v-else-if="imageParsePhase === 'processing'">
+              <div class="flex items-center justify-center gap-2 text-xs font-medium text-emerald-900"><Loader2 class="size-3.5 animate-spin" /> Gambar sudah dikirim. OCR sedang membaca {{ images.length }} halaman rekapan.</div>
+            </template>
+            <p class="mt-1 text-[11px] text-emerald-800">Pemrosesan dapat memerlukan hingga 2 menit. Mohon tidak menutup tab.</p>
+          </div>
+          <p v-else-if="sourceKind === 'images'" class="text-center text-[11px] text-muted-foreground">Pemrosesan gambar dapat memerlukan waktu hingga 2 menit.</p>
         </CardContent></Card>
       </div>
     </template>

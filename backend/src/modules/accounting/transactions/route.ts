@@ -229,6 +229,7 @@ export const transactionsRoute = new Hono<{
   .post('/_import/pap/parse-images', requirePermission('transactions.create'), async (c) => {
     const form = await c.req.formData();
     const files = form.getAll('files').filter((value): value is File => value instanceof File);
+    const rotations = form.getAll('rotations');
     if (files.length === 0 || files.length > PAP_OCR_MAX_IMAGES) {
       return c.json({ error: 'invalid_image_count', max: PAP_OCR_MAX_IMAGES }, 400);
     }
@@ -236,8 +237,17 @@ export const transactionsRoute = new Hono<{
     if (totalBytes > PAP_OCR_MAX_TOTAL_BYTES) {
       return c.json({ error: 'images_too_large', max: PAP_OCR_MAX_TOTAL_BYTES }, 413);
     }
+    const parsedRotations = rotations.length === 0
+      ? files.map(() => 0 as const)
+      : rotations.map((rotation) => Number(rotation));
+    if (
+      parsedRotations.length !== files.length
+      || parsedRotations.some((rotation) => ![0, 90, 180, 270].includes(rotation))
+    ) {
+      return c.json({ error: 'invalid_image_rotation' }, 400);
+    }
     try {
-      const images = await Promise.all(files.map(async (file) => {
+      const images = await Promise.all(files.map(async (file, index) => {
         if (!PAP_OCR_ALLOWED_MEDIA_TYPES.includes(file.type as never)) {
           throw new PAPOCRInputError(`tipe gambar tidak didukung: ${file.type}`);
         }
@@ -246,6 +256,7 @@ export const transactionsRoute = new Hono<{
           bytes: new Uint8Array(await file.arrayBuffer()),
           mediaType: file.type as (typeof PAP_OCR_ALLOWED_MEDIA_TYPES)[number],
           name: file.name,
+          rotationDegrees: parsedRotations[index] as 0 | 90 | 180 | 270,
         };
       }));
       return c.json({ data: await parsePAPImages(images) });

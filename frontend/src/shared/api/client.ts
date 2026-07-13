@@ -148,6 +148,74 @@ function buildUrl(path: string, query?: RequestOptions['query']): string {
   return qs ? `${url}?${qs}` : url;
 }
 
+interface MultipartUploadOptions {
+  query?: RequestOptions['query'];
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+  onUploadProgress?: (progress: { loaded: number; total: number }) => void;
+  onUploadComplete?: () => void;
+}
+
+/** XHR is used only where the browser's real multipart upload progress is needed. */
+export function postFormDataWithProgress<T>(
+  path: string,
+  form: FormData,
+  options: MultipartUploadOptions = {},
+): Promise<T> {
+  const {
+    query,
+    headers = {},
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    onUploadProgress,
+    onUploadComplete,
+  } = options;
+  const url = buildUrl(path, query);
+
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.withCredentials = true;
+    xhr.timeout = timeoutMs;
+    if (tenantSlug) xhr.setRequestHeader('X-Tenant-Slug', tenantSlug);
+    for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
+
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onUploadProgress?.({ loaded: event.loaded, total: event.total });
+      }
+    });
+    xhr.upload.addEventListener('load', () => onUploadComplete?.());
+
+    xhr.addEventListener('load', () => {
+      let parsed: unknown;
+      try {
+        parsed = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch {
+        parsed = xhr.responseText;
+      }
+
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const err = new Error(`API ${xhr.status} ${path}`) as ApiError;
+        err.status = xhr.status;
+        err.body = parsed;
+        reject(err);
+        return;
+      }
+
+      clearApiGetCache();
+      resolve(parsed as T);
+    });
+    xhr.addEventListener('timeout', () => {
+      const err = new Error(`Request timed out after ${timeoutMs}ms`);
+      err.name = 'TimeoutError';
+      reject(err);
+    });
+    xhr.addEventListener('error', () => reject(new Error('Network request failed.')));
+    xhr.addEventListener('abort', () => reject(new Error('Request aborted.')));
+    xhr.send(form);
+  });
+}
+
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { body, query, headers, method = 'GET', timeoutMs = REQUEST_TIMEOUT_MS, signal, ...rest } = opts;
   const url = buildUrl(path, query);

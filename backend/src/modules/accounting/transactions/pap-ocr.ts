@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
+import sharp from 'sharp';
 import { z } from 'zod';
 import { logger } from '../../../lib/logger.js';
 import {
@@ -18,11 +19,18 @@ export const PAP_OCR_MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 export const PAP_OCR_ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 
 export type PAPOCRMediaType = (typeof PAP_OCR_ALLOWED_MEDIA_TYPES)[number];
+export type PAPOCRRotation = 0 | 90 | 180 | 270;
 
 export interface PAPOCRImage {
   bytes: Buffer | Uint8Array;
   mediaType: PAPOCRMediaType;
   name?: string;
+  rotationDegrees?: PAPOCRRotation;
+}
+
+interface NormalizedPAPOCRImage {
+  bytes: Buffer;
+  mediaType: PAPOCRMediaType;
 }
 
 export interface PAPOCRResult {
@@ -71,12 +79,14 @@ export async function parsePAPImages(
   validateImages(images);
   const client = options.client ?? createPAPOCRClient(options.apiKey ?? process.env.ANTHROPIC_API_KEY);
   const sourceFingerprint = fingerprintImages(images);
-  const imageBlocks: Anthropic.ImageBlockParam[] = images.map((image) => ({
+  const normalizedImages = await Promise.all(images.map(normalizePAPOCRImage));
+  validateNormalizedImages(normalizedImages);
+  const imageBlocks: Anthropic.ImageBlockParam[] = normalizedImages.map((image) => ({
     type: 'image',
     source: {
       type: 'base64',
       media_type: image.mediaType,
-      data: Buffer.from(image.bytes).toString('base64'),
+      data: image.bytes.toString('base64'),
     },
   }));
 
@@ -182,6 +192,9 @@ function validateImages(images: PAPOCRImage[]): void {
     if (!PAP_OCR_ALLOWED_MEDIA_TYPES.includes(image.mediaType)) {
       throw new PAPOCRInputError(`tipe gambar tidak didukung: ${image.mediaType}`);
     }
+    if (!isPAPOCRRotation(image.rotationDegrees ?? 0)) {
+      throw new PAPOCRInputError('rotasi gambar tidak valid');
+    }
     if (image.bytes.byteLength === 0) throw new PAPOCRInputError('gambar kosong');
     if (image.bytes.byteLength > PAP_OCR_MAX_IMAGE_BYTES) {
       throw new PAPOCRInputError(`gambar melebihi ${PAP_OCR_MAX_IMAGE_BYTES} byte`);
@@ -193,9 +206,61 @@ function validateImages(images: PAPOCRImage[]): void {
   }
 }
 
+export async function normalizePAPOCRImage(image: PAPOCRImage): Promise<NormalizedPAPOCRImage> {
+  const bytes = Buffer.from(image.bytes);
+  const rotationDegrees = image.rotationDegrees ?? 0;
+  try {
+    const metadata = await sharp(bytes).metadata();
+    const decodedMediaType = mediaTypeFromSharpFormat(metadata.format);
+    if (!decodedMediaType || decodedMediaType !== image.mediaType) {
+      throw new PAPOCRInputError('isi gambar tidak cocok dengan tipe file');
+    }
+
+    const needsAutoOrientation = metadata.orientation !== undefined && metadata.orientation !== 1;
+    if (!needsAutoOrientation && rotationDegrees === 0) {
+      return { bytes, mediaType: image.mediaType };
+    }
+
+    const transformer = sharp(bytes).autoOrient();
+    if (rotationDegrees !== 0) transformer.rotate(rotationDegrees);
+    const normalized = await transformer.toBuffer();
+    return { bytes: normalized, mediaType: image.mediaType };
+  } catch (error) {
+    if (error instanceof PAPOCRInputError) throw error;
+    throw new PAPOCRInputError('gambar tidak dapat dibaca atau rusak');
+  }
+}
+
+function validateNormalizedImages(images: NormalizedPAPOCRImage[]): void {
+  let totalBytes = 0;
+  for (const image of images) {
+    if (image.bytes.byteLength > PAP_OCR_MAX_IMAGE_BYTES) {
+      throw new PAPOCRInputError(`gambar setelah orientasi melebihi ${PAP_OCR_MAX_IMAGE_BYTES} byte`);
+    }
+    totalBytes += image.bytes.byteLength;
+  }
+  if (totalBytes > PAP_OCR_MAX_TOTAL_BYTES) {
+    throw new PAPOCRInputError(`total gambar setelah orientasi melebihi ${PAP_OCR_MAX_TOTAL_BYTES} byte`);
+  }
+}
+
+function mediaTypeFromSharpFormat(format: string | undefined): PAPOCRMediaType | null {
+  if (format === 'jpeg') return 'image/jpeg';
+  if (format === 'png') return 'image/png';
+  if (format === 'webp') return 'image/webp';
+  return null;
+}
+
+function isPAPOCRRotation(value: number): value is PAPOCRRotation {
+  return value === 0 || value === 90 || value === 180 || value === 270;
+}
+
 function fingerprintImages(images: PAPOCRImage[]): string {
   const hash = createHash('sha256');
-  for (const image of images) hash.update(image.mediaType).update(Buffer.from(image.bytes));
+  for (const image of images) {
+    hash.update(image.mediaType).update(Buffer.from(image.bytes));
+    if ((image.rotationDegrees ?? 0) !== 0) hash.update(`:rotation=${image.rotationDegrees}`);
+  }
   return hash.digest('hex');
 }
 

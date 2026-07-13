@@ -4,7 +4,7 @@ Fitur ini mengubah rekapan kas PAP berformat **Excel** atau **foto/scan** menjad
 
 ## Alur kerja
 
-1. Pilih sumber: Excel (`.xlsx` / `.xlsm`) atau 1–5 foto JPEG, PNG, atau WebP.
+1. Pilih sumber: Excel (`.xlsx` / `.xlsm`) atau 1–5 foto JPEG, PNG, atau WebP. Foto juga dapat ditempel dari clipboard dengan fokus pada area unggahan lalu tekan `Ctrl+V`.
 2. Pilih satu Dana/Program PAP, akun Kas/Bank, akun Pendapatan, dan akun Beban default.
 3. Periksa dan koreksi hasil baca sebelum posting. Baris yang tidak valid tidak dipilih otomatis; confidence rendah perlu diakui secara eksplisit.
 4. Masukkan alasan audit minimal 10 karakter dan pilih **Konfirmasi & Posting**.
@@ -12,8 +12,8 @@ Fitur ini mengubah rekapan kas PAP berformat **Excel** atau **foto/scan** menjad
 
 Untuk setiap baris:
 
-- **Masuk**: debit Kas/Bank, kredit Pendapatan.
-- **Keluar**: debit Beban (akun default atau override per baris), kredit Kas/Bank.
+- **Masuk**: debit Kas/Bank, kredit akun Pendapatan default yang dipilih untuk batch. Tidak ada override akun pendapatan per baris; karena itu dropdown akun beban hilang jika jenis transaksi diubah menjadi Masuk.
+- **Keluar**: debit Beban (akun default atau override akun beban per baris), kredit Kas/Bank.
 - Kedua baris transaksi dan jurnal menerima `fundId` yang dipilih agar masuk Buku Dana PSAK 109.
 
 ## Excel
@@ -42,6 +42,10 @@ Batas unggahan foto:
 - JPEG, PNG, atau WebP
 - Maksimum 8 MB per gambar
 - Maksimum 20 MB total
+
+Sistem memperbaiki orientasi EXIF secara otomatis. Bila hasil pratinjau masih menyamping atau terbalik, gunakan kontrol putar 90° pada gambar sebelum memulai OCR. Indikator persentase menunjukkan proses unggah dari browser; setelah unggah selesai, status berubah menjadi pemrosesan OCR dan dapat memerlukan hingga dua menit. Sumber, Dana, dan mapping akun dikunci selama parsing berlangsung.
+
+Server mendekode gambar dan memeriksa bahwa isi file cocok dengan tipe JPEG, PNG, atau WebP yang diklaim. File rusak, tipe yang tidak cocok, atau gambar yang melampaui batas setelah normalisasi ditolak sebelum OCR. Rotasi manual menjadi bagian fingerprint sumber: perubahan rotasi diperlakukan sebagai sumber OCR berbeda agar retry tidak keliru memakai hasil orientasi sebelumnya.
 
 ## Audit, idempotensi, dan nomor
 
