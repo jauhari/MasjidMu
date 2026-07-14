@@ -251,10 +251,7 @@ const canPublishReports = computed(() => auth.hasPermission('reports.publish'));
 
 const publicPapUrl = computed(() => {
   const slug = getTenantSlug();
-  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.hisabmu.id')) {
-    return `${window.location.origin}/transparansi/pap`;
-  }
-  return slug ? `https://${slug}.hisabmu.id/transparansi/pap` : '/transparansi/pap';
+  return slug ? `https://hisabmu.pages.dev/transparansi/${slug}/pap` : 'https://hisabmu.pages.dev/transparansi/pap';
 });
 
 async function loadPublicPapStatus(): Promise<void> {
