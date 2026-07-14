@@ -16,7 +16,9 @@ import { computed, onActivated, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   AlertTriangle,
+  Copy,
   Download,
+  ExternalLink,
   FileBarChart2,
   Landmark,
   Scale,
@@ -25,11 +27,13 @@ import {
   Wallet,
 } from 'lucide-vue-next';
 import { api, getTenantSlug } from '@/shared/api/client';
+import { useAuthStore } from '@/features/auth/store';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table } from '@/components/ui/table';
 import Button from '@/shared/ui/Button.vue';
+import ConfirmDialog from '@/shared/ui/ConfirmDialog.vue';
 import DatePicker from '@/shared/ui/DatePicker.vue';
 import PageHeader from '@/shared/ui/PageHeader.vue';
 import AppSelect from '@/shared/ui/AppSelect.vue';
@@ -69,6 +73,7 @@ const periodModeOptions = [
 
 const route = useRoute();
 const router = useRouter();
+const auth = useAuthStore();
 const now = new Date();
 const reportType = ref<ReportType>('posisi-keuangan');
 const month = ref(now.getMonth() + 1);
@@ -78,12 +83,30 @@ const dateFrom = ref<string | null>(null);
 const dateTo = ref<string | null>(null);
 const fundId = ref<string>('');
 const fundOptions = ref<{ value: string; label: string }[]>([]);
+const publicPapFundId = ref('');
+const publicPapStatus = ref<PublicPapStatus | null>(null);
+const publicPapLoading = ref(false);
+const publicPapSaving = ref(false);
+const publicPapError = ref<string | null>(null);
+const publishConfirmOpen = ref(false);
+const revokeConfirmOpen = ref(false);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const data = ref<any>(null);
 const periodLabel = ref<string>('');
 /** Hindari double-load saat apply query + watch. */
 const suppressWatchLoad = ref(false);
+
+interface PublicPapStatus {
+  fundId: string;
+  isPublished: boolean;
+  publishedAt: string | null;
+  revokedAt: string | null;
+  updatedAt: string;
+  fundCode: string;
+  fundName: string;
+  fundIsActive: boolean;
+}
 
 const REPORT_TYPE_SET = new Set(REPORTS.map((r) => r.value));
 
@@ -224,6 +247,67 @@ const yearStr = computed({
   set: (v: string) => { year.value = Number(v); },
 });
 
+const canPublishReports = computed(() => auth.hasPermission('reports.publish'));
+
+const publicPapUrl = computed(() => {
+  const slug = getTenantSlug();
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.hisabmu.id')) {
+    return `${window.location.origin}/transparansi/pap`;
+  }
+  return slug ? `https://${slug}.hisabmu.id/transparansi/pap` : '/transparansi/pap';
+});
+
+async function loadPublicPapStatus(): Promise<void> {
+  if (!canPublishReports.value) return;
+  publicPapLoading.value = true;
+  publicPapError.value = null;
+  try {
+    const res = await api.get<{ data: PublicPapStatus | null }>('/api/v1/reports/public-pap');
+    publicPapStatus.value = res.data;
+    publicPapFundId.value = res.data?.fundId || publicPapFundId.value || fundId.value || fundOptions.value[0]?.value || '';
+  } catch (err) {
+    publicPapError.value = (err as Error).message;
+  } finally {
+    publicPapLoading.value = false;
+  }
+}
+
+async function publishPublicPap(): Promise<void> {
+  if (!publicPapFundId.value) return;
+  publicPapSaving.value = true;
+  publicPapError.value = null;
+  try {
+    const res = await api.post<{ data: unknown }>('/api/v1/reports/public-pap/publish', { fundId: publicPapFundId.value });
+    void res;
+    publishConfirmOpen.value = false;
+    await loadPublicPapStatus();
+  } catch (err) {
+    const e = err as { body?: { error?: string; detail?: string }; message?: string };
+    publicPapError.value = e.body?.detail ?? e.body?.error ?? e.message ?? 'Gagal mempublikasikan laporan';
+  } finally {
+    publicPapSaving.value = false;
+  }
+}
+
+async function revokePublicPap(): Promise<void> {
+  publicPapSaving.value = true;
+  publicPapError.value = null;
+  try {
+    await api.post('/api/v1/reports/public-pap/revoke', {});
+    revokeConfirmOpen.value = false;
+    await loadPublicPapStatus();
+  } catch (err) {
+    const e = err as { body?: { error?: string; detail?: string }; message?: string };
+    publicPapError.value = e.body?.detail ?? e.body?.error ?? e.message ?? 'Gagal mencabut publikasi';
+  } finally {
+    publicPapSaving.value = false;
+  }
+}
+
+async function copyPublicPapUrl(): Promise<void> {
+  await navigator.clipboard?.writeText(publicPapUrl.value);
+}
+
 // ─── Data-integrity glances — murni tampilan, tidak mengubah angka apa pun.
 // Toleransi 0.5 (setengah rupiah) untuk meredam noise pembulatan string.
 const balanceSheetDiff = computed(() => {
@@ -270,6 +354,7 @@ async function bootReports(): Promise<void> {
     suppressWatchLoad.value = false;
   }
   await load();
+  await loadPublicPapStatus();
 }
 
 onMounted(() => {
@@ -345,6 +430,67 @@ watch(
             />
           </div>
         </template>
+      </CardContent>
+    </Card>
+
+    <Card v-if="canPublishReports">
+      <CardContent class="space-y-3 px-4 py-4">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p class="text-sm font-semibold text-foreground">Transparansi Dana PAP</p>
+            <p class="mt-1 max-w-2xl text-xs text-muted-foreground">
+              Publikasikan laporan Dana PAP untuk jamaah. Halaman publik hanya menampilkan ringkasan dan mutasi anonim, tanpa nomor bukti, akun, donor/penerima, atau catatan internal.
+            </p>
+          </div>
+          <span
+            class="inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold"
+            :class="publicPapStatus?.isPublished ? 'bg-emerald-100 text-emerald-700' : 'bg-muted text-muted-foreground'"
+          >
+            {{ publicPapStatus?.isPublished ? 'Dipublikasikan' : 'Belum publik' }}
+          </span>
+        </div>
+
+        <Alert v-if="publicPapError" variant="destructive">
+          <AlertDescription>{{ publicPapError }}</AlertDescription>
+        </Alert>
+
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div class="w-full max-w-[320px]">
+            <AppSelect
+              v-model="publicPapFundId"
+              :disabled="publicPapLoading || publicPapSaving"
+              :options="fundOptions.length ? fundOptions : [{ value: '', label: '— Belum ada dana —' }]"
+            />
+          </div>
+          <Button
+            :disabled="!publicPapFundId || publicPapSaving"
+            :loading="publicPapSaving"
+            @click="publishConfirmOpen = true"
+          >
+            Publikasikan
+          </Button>
+          <Button
+            v-if="publicPapStatus?.isPublished"
+            variant="secondary"
+            :disabled="publicPapSaving"
+            @click="revokeConfirmOpen = true"
+          >
+            Cabut
+          </Button>
+        </div>
+
+        <div v-if="publicPapStatus?.isPublished" class="flex flex-col gap-2 rounded-xl border bg-muted/30 px-3 py-3 text-xs sm:flex-row sm:items-center">
+          <div class="min-w-0 flex-1">
+            <p class="font-medium text-foreground">{{ publicPapStatus.fundCode }} — {{ publicPapStatus.fundName }}</p>
+            <p class="truncate text-muted-foreground">{{ publicPapUrl }}</p>
+          </div>
+          <div class="flex gap-2">
+            <Button variant="secondary" size="sm" @click="copyPublicPapUrl"><Copy class="h-3.5 w-3.5" /> Salin</Button>
+            <a :href="publicPapUrl" target="_blank" rel="noopener">
+              <Button variant="secondary" size="sm"><ExternalLink class="h-3.5 w-3.5" /> Buka</Button>
+            </a>
+          </div>
+        </div>
       </CardContent>
     </Card>
 
@@ -1139,5 +1285,22 @@ watch(
         <p class="max-w-[18rem] text-xs text-muted-foreground">Coba ganti periode atau jenis laporan di atas.</p>
       </CardContent>
     </Card>
+
+    <ConfirmDialog
+      v-model:open="publishConfirmOpen"
+      title="Publikasikan laporan Dana PAP?"
+      message="Halaman publik akan dapat diakses tanpa login. Data yang tampil hanya ringkasan dan mutasi anonim."
+      confirm-label="Publikasikan"
+      :loading="publicPapSaving"
+      @confirm="publishPublicPap"
+    />
+    <ConfirmDialog
+      v-model:open="revokeConfirmOpen"
+      title="Cabut publikasi Dana PAP?"
+      message="Halaman publik tidak akan bisa diakses lagi sampai dipublikasikan ulang."
+      confirm-label="Cabut"
+      :loading="publicPapSaving"
+      @confirm="revokePublicPap"
+    />
   </div>
 </template>

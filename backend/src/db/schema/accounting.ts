@@ -3,6 +3,7 @@ import {
   type AnyPgColumn,
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -118,6 +119,32 @@ export const funds = pgTable(
   (t) => ({
     uniqueTenantCode: unique().on(t.tenantId, t.code),
     tenantIdx: index().on(t.tenantId),
+  }),
+);
+
+// ─── Public PAP transparency publication ───────────────────────────────────
+export const publicPapReports = pgTable(
+  'public_pap_reports',
+  {
+    tenantId: uuid()
+      .primaryKey()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    fundId: uuid().notNull(),
+    isPublished: boolean().default(false).notNull(),
+    publishedAt: timestamp({ withTimezone: true }),
+    publishedBy: uuid().references(() => users.id),
+    revokedAt: timestamp({ withTimezone: true }),
+    revokedBy: uuid().references(() => users.id),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    fundIdx: index().on(t.fundId),
+    publishedIdx: index().on(t.isPublished),
+    fundTenantFk: foreignKey({
+      columns: [t.tenantId, t.fundId],
+      foreignColumns: [funds.tenantId, funds.id],
+    }).onDelete('restrict'),
   }),
 );
 
@@ -345,6 +372,7 @@ export const journalLines = pgTable(
 
 export type Account = typeof accounts.$inferSelect;
 export type Fund = typeof funds.$inferSelect;
+export type PublicPapReport = typeof publicPapReports.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
 export type TransactionLine = typeof transactionLines.$inferSelect;
 export type Journal = typeof journals.$inferSelect;

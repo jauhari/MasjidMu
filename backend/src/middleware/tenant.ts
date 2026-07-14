@@ -27,8 +27,10 @@
  */
 import type { MiddlewareHandler } from 'hono';
 import { and, eq, isNull } from 'drizzle-orm';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { asSuperAdmin } from '../db/client.js';
 import { tenants, users, type Tenant } from '../db/schema/core.js';
+import { env } from '../lib/env.js';
 import { memGet, memSet } from '../lib/memory-cache.js';
 import type { SessionVars } from './session.js';
 
@@ -54,25 +56,52 @@ const HOME_TENANT_CACHE_TTL_SEC = 60;
 // tenant's data just by sending a different header value.
 const HEADER_FALLBACK_HOSTS = new Set(['masjidmu-backend.onrender.com']);
 
-function extractSlug(host: string, devHeaderSlug?: string, devQuerySlug?: string): string | null {
+function signProxySlug(slug: string, ts: string): string {
+  return createHmac('sha256', env.PUBLIC_TENANT_PROXY_SECRET ?? '')
+    .update(`${slug}.${ts}`)
+    .digest('hex');
+}
+
+function verifiedProxySlug(slug: string | undefined, ts: string | undefined, sig: string | undefined): string | null {
+  if (!env.PUBLIC_TENANT_PROXY_SECRET || !slug || !ts || !sig) return null;
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) return null;
+  const age = Math.abs(Date.now() - Number(ts));
+  if (!Number.isFinite(age) || age > 5 * 60_000) return null;
+  const expected = signProxySlug(slug.toLowerCase(), ts);
+  const given = Buffer.from(sig, 'hex');
+  const want = Buffer.from(expected, 'hex');
+  if (given.length !== want.length) return null;
+  return timingSafeEqual(given, want) ? slug.toLowerCase() : null;
+}
+
+function slugFromHost(host: string): string | null {
+  const hostname = host.split(':')[0]!.toLowerCase();
+  if (PUBLIC_HOSTS.has(hostname)) return null;
+  const m = hostname.match(/^([a-z0-9][a-z0-9-]*)\.hisabmu\.id$/);
+  if (m && m[1] !== 'api' && m[1] !== 'admin' && m[1] !== 'www') return m[1];
+  return null;
+}
+
+function extractSlug(
+  host: string,
+  devHeaderSlug?: string,
+  devQuerySlug?: string,
+  proxySlug?: string,
+  forwardedHost?: string,
+  allowPublicForwardedHost = false,
+): string | null {
+  if (proxySlug) return proxySlug;
   // Strip port
   const hostname = host.split(':')[0]!.toLowerCase();
 
   // Dev: localhost — header takes precedence over query param
   if (hostname === 'localhost' || hostname === '127.0.0.1' || HEADER_FALLBACK_HOSTS.has(hostname)) {
-    return (devHeaderSlug ?? devQuerySlug)?.toLowerCase() ?? null;
+    return (devHeaderSlug ?? devQuerySlug)?.toLowerCase()
+      ?? (allowPublicForwardedHost ? slugFromHost(forwardedHost ?? '') : null)
+      ?? null;
   }
 
-  // Public host (no tenant)
-  if (PUBLIC_HOSTS.has(hostname)) return null;
-
-  // Subdomain extraction: {slug}.hisabmu.id
-  const m = hostname.match(/^([a-z0-9][a-z0-9-]*)\.hisabmu\.id$/);
-  if (m && m[1] !== 'api' && m[1] !== 'admin' && m[1] !== 'www') {
-    return m[1];
-  }
-
-  return null;
+  return slugFromHost(host);
 }
 
 async function resolveTenant(slug: string): Promise<Tenant | null> {
@@ -126,7 +155,19 @@ export const tenantResolver = (): MiddlewareHandler<{ Variables: SessionVars & T
     const host = c.req.header('host') ?? '';
     const devHeader = c.req.header('x-tenant-slug') ?? undefined;
     const devQuery = c.req.query('tenant_slug') ?? undefined;
-    let slug = extractSlug(host, devHeader, devQuery);
+    const proxySlug = verifiedProxySlug(
+      c.req.header('x-hisabmu-tenant-slug') ?? undefined,
+      c.req.header('x-hisabmu-tenant-ts') ?? undefined,
+      c.req.header('x-hisabmu-tenant-sig') ?? undefined,
+    );
+    let slug = extractSlug(
+      host,
+      devHeader,
+      devQuery,
+      proxySlug ?? undefined,
+      c.req.header('x-forwarded-host') ?? undefined,
+      c.req.path.startsWith('/api/public/'),
+    );
 
     if (!slug) {
       const user = c.get('user');

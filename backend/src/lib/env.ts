@@ -28,6 +28,9 @@ const envSchema = z.object({
   // Required only by the PAP image-import endpoint.
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
 
+  // Optional shared secret for Cloudflare Pages → backend tenant forwarding.
+  PUBLIC_TENANT_PROXY_SECRET: z.string().min(16).optional(),
+
   // Unused by the hot path (rate-limit/permission/report caches are
   // in-memory, see middleware/rate-limit.ts, middleware/permission.ts,
   // modules/accounting/reports/cache.ts) — kept optional for lib/redis.ts,

@@ -16,6 +16,7 @@ import { transactionCategoriesRoute } from './modules/accounting/transaction-cat
 import { transactionsRoute } from './modules/accounting/transactions/route.js';
 import { fundsRoute } from './modules/accounting/funds/route.js';
 import { reportsRoute } from './modules/accounting/reports/route.js';
+import { publicPapRoute } from './modules/accounting/public-pap/route.js';
 import { mosqueProfileRoute } from './modules/organization/mosque-profile/route.js';
 import { periodsRoute } from './modules/organization/periods/route.js';
 import { positionsRoute } from './modules/organization/positions/route.js';
@@ -87,6 +88,9 @@ app.use('/api/auth/sign-in/*', rateLimit('login'));
 app.use('/api/auth/sign-up/*', rateLimit('login'));
 // better-auth handles its own routes under /api/auth/*
 app.on(['POST', 'GET'], '/api/auth/*', (c) => auth.handler(c.req.raw));
+
+// ─── Public API — read-only, anonymous, explicitly projected ──────────────
+app.route('/api/public/pap', publicPapRoute);
 
 // ─── App API (v1) — full middleware stack ────────────────────────────────
 app.use('/api/v1/*', sessionResolver());

@@ -52,6 +52,7 @@ const PERMISSIONS: Array<{ code: string; module: string; action: string; descrip
   { code: 'transactions.god_mode', module: 'accounting', action: 'transactions.god_mode', description: 'GOD MODE: bypass state machine, force-edit/delete posted transactions (super_admin only)' },
   { code: 'reports.read', module: 'accounting', action: 'reports.read', description: 'View financial reports' },
   { code: 'reports.export', module: 'accounting', action: 'reports.export', description: 'Export financial reports (PDF/XLSX)' },
+  { code: 'reports.publish', module: 'accounting', action: 'reports.publish', description: 'Publish/revoke public transparency reports' },
   // Content
   { code: 'programs.manage', module: 'content', action: 'programs.manage', description: 'Manage programs' },
   { code: 'events.manage', module: 'content', action: 'events.manage', description: 'Manage events' },

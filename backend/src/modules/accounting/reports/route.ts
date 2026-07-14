@@ -53,6 +53,13 @@ import { buildFundLedger, FundLedgerNotFoundError } from './services/fund-ledger
 import { buildConsolidatedFundUsage } from './services/consolidation.js';
 import { renderReportPdf } from './export/pdf.js';
 import { renderReportXlsx } from './export/xlsx.js';
+import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
+import {
+  getPublicPapStatus,
+  publishPublicPap,
+  revokePublicPap,
+} from '../public-pap/service.js';
 
 function resolveFormat(raw: string | undefined): ExportFormat {
   if (raw === 'pdf' || raw === 'xlsx') return raw;
@@ -162,12 +169,44 @@ function permFor(format: ExportFormat): string {
   return format === 'json' ? 'reports.read' : 'reports.export';
 }
 
+const publishPublicPapSchema = z.object({
+  fundId: z.string().uuid(),
+});
+
 export const reportsRoute = new Hono<{
   Variables: SessionVars & TenantVars & PermissionVars;
 }>()
   .use('*', requireSession())
   .use('*', requireTenant())
   .use('*', auditInterceptor())
+
+  .get('/public-pap', requirePermission('reports.read'), async (c) => {
+    const status = await getPublicPapStatus(c.get('tenantId')!);
+    return c.json({ data: status });
+  })
+
+  .post(
+    '/public-pap/publish',
+    requirePermission('reports.publish'),
+    zValidator('json', publishPublicPapSchema),
+    async (c) => {
+      const row = await publishPublicPap({
+        tenantId: c.get('tenantId')!,
+        fundId: c.req.valid('json').fundId,
+        actorAuthUserId: c.get('user')!.id,
+      });
+      if (!row) return c.json({ error: 'fund_not_publishable' }, 400);
+      return c.json({ data: row });
+    },
+  )
+
+  .post('/public-pap/revoke', requirePermission('reports.publish'), async (c) => {
+    const row = await revokePublicPap({
+      tenantId: c.get('tenantId')!,
+      actorAuthUserId: c.get('user')!.id,
+    });
+    return c.json({ data: row });
+  })
 
   // For each route we evaluate the permission against the requested format.
   // The handler computes `format` again, so we just gate at the broader level

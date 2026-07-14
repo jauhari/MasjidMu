@@ -9,6 +9,12 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   {
+    path: '/transparansi/pap',
+    name: 'public-pap-transparency',
+    component: () => import('@/features/public-pap/PublicPapView.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/',
     component: () => import('@/app/AppShell.vue'),
     meta: { requiresAuth: true },
@@ -105,6 +111,9 @@ export const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
+  if (to.meta.public && to.name !== 'login') {
+    return true;
+  }
   if (!auth.initialized) {
     await auth.init();
   }

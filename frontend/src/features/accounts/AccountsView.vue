@@ -43,6 +43,7 @@ import AppCheckbox from '@/shared/ui/AppCheckbox.vue';
 import MoneyText from '@/shared/ui/MoneyText.vue';
 import MoneyInput from '@/shared/ui/MoneyInput.vue';
 import SmartAccountSelect from '@/shared/ui/SmartAccountSelect.vue';
+import ParentAccountSelect from '@/shared/ui/ParentAccountSelect.vue';
 
 type AccountType =
   | 'asset'
@@ -333,11 +334,24 @@ function toggleRow(node: TreeNode): void {
   if (node.children.length > 0) toggle(node);
 }
 
-const parentOptions = computed(() =>
-  items.value
-    .filter((a) => a.id !== editing.value?.id)
-    .map((a) => ({ id: a.id, label: `${a.code} — ${a.name}` })),
-);
+const parentOptions = computed(() => {
+  const roots = buildTree(items.value.filter((a) => a.id !== editing.value?.id));
+  const options: Array<{ id: string; label: string; code: string; name: string; depth: number }> = [];
+  function walk(nodes: TreeNode[]): void {
+    for (const node of nodes) {
+      options.push({
+        id: node.id,
+        label: `${node.code} - ${node.name}`,
+        code: node.code,
+        name: node.name,
+        depth: node.depth,
+      });
+      walk(node.children);
+    }
+  }
+  walk(roots);
+  return options;
+});
 
 const accountTypeOptions = computed(() =>
   Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label })),
@@ -349,8 +363,14 @@ const normalBalanceOptions = [
 ];
 
 const parentSelectOptions = computed(() => [
-  { value: '', label: '— Tidak ada —' },
-  ...parentOptions.value.map((p) => ({ value: p.id, label: p.label })),
+  { value: '', label: 'Tidak ada', code: 'Root', name: 'Tidak ada induk', depth: 0, muted: true },
+  ...parentOptions.value.map((p) => ({
+    value: p.id,
+    label: p.label,
+    code: p.code,
+    name: p.name,
+    depth: p.depth,
+  })),
 ]);
 
 function toggle(node: TreeNode): void {
@@ -938,10 +958,10 @@ onMounted(load);
             />
           </FormField>
           <FormField label="Akun induk" hint="Opsional — pilih induk agar kode anak disarankan">
-            <AppSelect
+            <ParentAccountSelect
               :model-value="form.parentId"
-              :options="parentSelectOptions"
-              placeholder="— Tidak ada —"
+              :accounts="items.filter((a) => a.id !== editing?.id)"
+              placeholder="Tidak ada induk"
               @update:model-value="onParentChange"
             />
           </FormField>

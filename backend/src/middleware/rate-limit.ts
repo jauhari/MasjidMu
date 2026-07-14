@@ -6,15 +6,17 @@
  * hiccup) for a single-instance deployment that didn't need it. Revisit if
  * this ever scales to multiple instances needing a shared limit.
  *
- * Three preset limiters:
- *   • login:  5 / 15min  per IP        — guards /api/auth/sign-in/*
- *   • api:    100 / min  per tenant    — guards /api/* generally
- *   • export: 10 / hour  per user      — guards expensive PDF/XLSX endpoints
+ * Preset limiters:
+ *   • login:      5 / 15min  per IP        — guards /api/auth/sign-in/*
+ *   • api:        100 / min  per tenant    — guards /api/* generally
+ *   • export:     10 / hour  per user      — guards expensive PDF/XLSX endpoints
+ *   • public:     120 / min  per IP        — guards anonymous public JSON
+ *   • publicPdf:  12 / hour  per IP        — guards anonymous public PDF
  *
  * Key derivation:
- *   • login   → IP (X-Forwarded-For chain → first → fallback to remote)
- *   • api     → tenantId if present, else IP
- *   • export  → userId if present, else IP
+ *   • login/public/publicPdf → IP (X-Forwarded-For chain → first → fallback to remote)
+ *   • api                   → tenantId if present, else IP
+ *   • export                → userId if present, else IP
  *
  * On limit: returns 429 with `retry-after` header (seconds).
  */
@@ -31,6 +33,8 @@ const LIMITS = {
   login: { count: isDev ? 100 : 5, windowMs: 15 * 60_000 },
   api: { count: isDev ? 1000 : 100, windowMs: 60_000 },
   export: { count: isDev ? 100 : 10, windowMs: 60 * 60_000 },
+  public: { count: isDev ? 1000 : 120, windowMs: 60_000 },
+  publicPdf: { count: isDev ? 100 : 12, windowMs: 60 * 60_000 },
 } as const;
 
 type LimiterKind = keyof typeof LIMITS;
@@ -76,6 +80,10 @@ export const rateLimit = (
         break;
       case 'export':
         key = c.get('user')?.id ? `u:${c.get('user')!.id}` : `ip:${clientIp(c)}`;
+        break;
+      case 'public':
+      case 'publicPdf':
+        key = `ip:${clientIp(c)}`;
         break;
     }
 

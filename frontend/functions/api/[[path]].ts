@@ -8,8 +8,27 @@
  */
 type PagesContext = {
   request: Request;
-  env: { API_ORIGIN?: string };
+  env: { API_ORIGIN?: string; PUBLIC_TENANT_PROXY_SECRET?: string };
 };
+
+function tenantSlugFromHost(hostname: string): string | null {
+  const m = hostname.toLowerCase().match(/^([a-z0-9][a-z0-9-]*)\.hisabmu\.id$/);
+  if (!m) return null;
+  const slug = m[1];
+  return slug && !['api', 'admin', 'www'].includes(slug) ? slug : null;
+}
+
+async function signTenantSlug(secret: string, slug: string, ts: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const buf = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${slug}.${ts}`));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 export async function onRequest(context: PagesContext): Promise<Response> {
   const apiOrigin = (context.env.API_ORIGIN || '').replace(/\/$/, '');
@@ -32,8 +51,20 @@ export async function onRequest(context: PagesContext): Promise<Response> {
 
   const headers = new Headers(context.request.headers);
   headers.delete('host');
+  headers.delete('x-tenant-slug');
+  headers.delete('x-hisabmu-tenant-slug');
+  headers.delete('x-hisabmu-tenant-ts');
+  headers.delete('x-hisabmu-tenant-sig');
   headers.set('x-forwarded-host', incoming.host);
   headers.set('x-forwarded-proto', incoming.protocol.replace(':', ''));
+
+  const tenantSlug = tenantSlugFromHost(incoming.hostname);
+  if (tenantSlug && context.env.PUBLIC_TENANT_PROXY_SECRET) {
+    const ts = String(Date.now());
+    headers.set('x-hisabmu-tenant-slug', tenantSlug);
+    headers.set('x-hisabmu-tenant-ts', ts);
+    headers.set('x-hisabmu-tenant-sig', await signTenantSlug(context.env.PUBLIC_TENANT_PROXY_SECRET, tenantSlug, ts));
+  }
 
   const method = context.request.method;
   const init: RequestInit & { duplex?: 'half' } = {
