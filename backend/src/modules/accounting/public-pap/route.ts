@@ -28,9 +28,8 @@ export const publicPapRoute = new Hono<{ Variables: TenantVars }>()
     let period;
     try {
       period = parsePeriod({
-        ...defaultPeriodQuery(),
-        month: c.req.query('month'),
-        year: c.req.query('year'),
+        month: c.req.query('month') ?? defaultPeriodQuery().month,
+        year: c.req.query('year') ?? defaultPeriodQuery().year,
         startDate: c.req.query('startDate'),
         endDate: c.req.query('endDate'),
       });
