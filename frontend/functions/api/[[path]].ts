@@ -11,11 +11,14 @@ type PagesContext = {
   env: { API_ORIGIN?: string; PUBLIC_TENANT_PROXY_SECRET?: string };
 };
 
+function validTenantSlug(slug: string | null): string | null {
+  if (!slug || !/^[a-z0-9][a-z0-9-]*$/.test(slug)) return null;
+  return !['api', 'admin', 'app', 'www'].includes(slug) ? slug : null;
+}
+
 function tenantSlugFromHost(hostname: string): string | null {
   const m = hostname.toLowerCase().match(/^([a-z0-9][a-z0-9-]*)\.hisabmu\.id$/);
-  if (!m) return null;
-  const slug = m[1];
-  return slug && !['api', 'admin', 'app', 'www'].includes(slug) ? slug : null;
+  return validTenantSlug(m?.[1] ?? null);
 }
 
 async function signTenantSlug(secret: string, slug: string, ts: string): Promise<string> {
@@ -56,10 +59,11 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   headers.delete('x-hisabmu-tenant-slug');
   headers.delete('x-hisabmu-tenant-ts');
   headers.delete('x-hisabmu-tenant-sig');
-  headers.set('x-forwarded-host', incoming.host);
+  const tenantSlug = tenantSlugFromHost(incoming.hostname)
+    ?? (isPublicApi ? validTenantSlug(incoming.searchParams.get('tenant_slug')) : null);
+  headers.set('x-forwarded-host', tenantSlug && isPublicApi ? `${tenantSlug}.hisabmu.id` : incoming.host);
   headers.set('x-forwarded-proto', incoming.protocol.replace(':', ''));
 
-  const tenantSlug = tenantSlugFromHost(incoming.hostname);
   if (tenantSlug && context.env.PUBLIC_TENANT_PROXY_SECRET) {
     const ts = String(Date.now());
     headers.set('x-hisabmu-tenant-slug', tenantSlug);

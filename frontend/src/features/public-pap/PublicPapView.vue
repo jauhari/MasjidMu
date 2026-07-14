@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { Download, FileText, ShieldCheck, TrendingDown, TrendingUp, Wallet } from 'lucide-vue-next';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
@@ -48,6 +49,7 @@ interface PublicPapReport {
   };
 }
 
+const route = useRoute();
 const now = new Date();
 const loading = ref(false);
 const unavailable = ref(false);
@@ -86,11 +88,18 @@ const yearStr = computed({
   set: (v: string) => { year.value = Number(v); },
 });
 
+function validTenantSlug(slug: unknown): string | null {
+  if (typeof slug !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(slug)) return null;
+  return !['api', 'admin', 'app', 'www'].includes(slug) ? slug : null;
+}
+
 function tenantSlugForDev(): string | null {
+  const routeSlug = validTenantSlug(route.params.tenantSlug);
+  if (routeSlug) return routeSlug;
   if (typeof window === 'undefined') return null;
   const host = window.location.hostname;
   if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.pages.dev')) {
-    return getTenantSlug();
+    return validTenantSlug(getTenantSlug());
   }
   return null;
 }

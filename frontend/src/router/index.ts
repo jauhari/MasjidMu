@@ -15,6 +15,12 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   {
+    path: '/transparansi/:tenantSlug/pap',
+    name: 'public-pap-transparency-slug',
+    component: () => import('@/features/public-pap/PublicPapView.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/',
     component: () => import('@/app/AppShell.vue'),
     meta: { requiresAuth: true },
