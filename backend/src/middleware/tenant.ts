@@ -153,8 +153,9 @@ async function resolveHomeTenantSlug(authUserId: string): Promise<string | null>
 export const tenantResolver = (): MiddlewareHandler<{ Variables: SessionVars & TenantVars }> =>
   async (c, next) => {
     const host = c.req.header('host') ?? '';
-    const devHeader = c.req.header('x-tenant-slug') ?? undefined;
-    const devQuery = c.req.query('tenant_slug') ?? undefined;
+    const isPublicApi = c.req.path.startsWith('/api/public/');
+    const devHeader = isPublicApi ? undefined : c.req.header('x-tenant-slug') ?? undefined;
+    const devQuery = isPublicApi ? undefined : c.req.query('tenant_slug') ?? undefined;
     const proxySlug = verifiedProxySlug(
       c.req.header('x-hisabmu-tenant-slug') ?? undefined,
       c.req.header('x-hisabmu-tenant-ts') ?? undefined,
@@ -166,7 +167,7 @@ export const tenantResolver = (): MiddlewareHandler<{ Variables: SessionVars & T
       devQuery,
       proxySlug ?? undefined,
       c.req.header('x-forwarded-host') ?? undefined,
-      c.req.path.startsWith('/api/public/'),
+      isPublicApi,
     );
 
     if (!slug) {

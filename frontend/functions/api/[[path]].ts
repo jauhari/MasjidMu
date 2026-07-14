@@ -15,7 +15,7 @@ function tenantSlugFromHost(hostname: string): string | null {
   const m = hostname.toLowerCase().match(/^([a-z0-9][a-z0-9-]*)\.hisabmu\.id$/);
   if (!m) return null;
   const slug = m[1];
-  return slug && !['api', 'admin', 'www'].includes(slug) ? slug : null;
+  return slug && !['api', 'admin', 'app', 'www'].includes(slug) ? slug : null;
 }
 
 async function signTenantSlug(secret: string, slug: string, ts: string): Promise<string> {
@@ -51,7 +51,8 @@ export async function onRequest(context: PagesContext): Promise<Response> {
 
   const headers = new Headers(context.request.headers);
   headers.delete('host');
-  headers.delete('x-tenant-slug');
+  const isPublicApi = incoming.pathname.startsWith('/api/public/');
+  if (isPublicApi) headers.delete('x-tenant-slug');
   headers.delete('x-hisabmu-tenant-slug');
   headers.delete('x-hisabmu-tenant-ts');
   headers.delete('x-hisabmu-tenant-sig');
