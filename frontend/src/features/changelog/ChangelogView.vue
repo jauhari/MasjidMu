@@ -29,6 +29,33 @@ const typeBadge: Record<ChangeEntry['type'], { icon: unknown; label: string; cls
 
 const entries: ChangeEntry[] = [
   {
+    date: '2026-07-15',
+    type: 'feature',
+    title: 'Transparansi publik Dana PAP',
+    description:
+      'Admin kini dapat mempublikasikan satu Dana PAP dari halaman Laporan Keuangan. Jamaah dapat membuka tautan khusus tanpa login untuk melihat ringkasan saldo, penerimaan, penyaluran, mutasi anonim, serta mengunduh PDF. Publikasi dapat dicabut kapan saja; informasi internal seperti akun, nomor bukti, donor/penerima, dan catatan tidak ditampilkan.',
+    files: [
+      'features/reports/ReportsView.vue',
+      'features/public-pap/PublicPapView.vue',
+      'modules/accounting/public-pap/route.ts',
+      'modules/accounting/public-pap/service.ts',
+      'db/migrations/sql/096_public_pap_reports.sql',
+    ],
+  },
+  {
+    date: '2026-07-15',
+    type: 'fix',
+    title: 'Tautan publik PAP dapat dibagikan dari Pages',
+    description:
+      'Tautan laporan Dana PAP dari admin kini memakai alamat bersama HisabMu Pages dengan slug lembaga, sehingga tetap terbuka sebelum subdomain produksi tiap lembaga aktif. Route publik juga meneruskan konteks tenant secara aman ke API.',
+    files: [
+      'features/reports/ReportsView.vue',
+      'features/public-pap/PublicPapView.vue',
+      'router/index.ts',
+      'functions/api/[[path]].ts',
+    ],
+  },
+  {
     date: '2026-07-13',
     type: 'ui',
     title: 'Dashboard — arus kas rolling 12 bulan',
