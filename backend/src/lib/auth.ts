@@ -74,11 +74,6 @@ export const auth = betterAuth({
     'https://www.hisabmu.id',
     'https://admin.hisabmu.id',
     'https://hisabmu.pages.dev',
-    // Dynamic matching for Cloudflare Pages previews and tenant subdomains
-    /^https:\/\/([a-z0-9-]+\.)*pages\.dev$/,
-    /^https:\/\/([a-z0-9-]+\.)*mizanmu\.id$/,
-    /^https:\/\/([a-z0-9-]+\.)*pcmponjong\.id$/,
-    /^https:\/\/([a-z0-9-]+\.)*hisabmu\.id$/,
   ],
 
   plugins: [
