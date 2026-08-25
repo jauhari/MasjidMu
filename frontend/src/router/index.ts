@@ -124,7 +124,15 @@ router.beforeEach(async (to) => {
     await auth.init();
   }
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    return { path: '/login', query: { redirect: to.fullPath } };
+    // better-auth redirects OAuth errors it can't resolve to baseURL root
+    // (not our errorCallbackURL) when the flow's state can't be recognized —
+    // e.g. https://.../?error=please_restart_the_process. That lands here as
+    // an unauthenticated hit on a requiresAuth route, and `error` must be
+    // forwarded as its own query param or LoginView's `?error=` banner never
+    // sees it — it'd otherwise be buried inside the opaque `redirect` value.
+    const query: Record<string, string> = { redirect: to.fullPath };
+    if (typeof to.query.error === 'string') query.error = to.query.error;
+    return { path: '/login', query };
   }
   if (to.path === '/login' && auth.isAuthenticated) {
     return { path: '/' };
