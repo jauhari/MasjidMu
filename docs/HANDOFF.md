@@ -63,6 +63,19 @@ User kasih feedback langsung setelah coba kartu/gambar di §1: desain gambar "ng
 
 ---
 
+## 4b. Iterasi Lanjutan #2 — "PRO LEVEL" (user masih belum puas)
+
+User tegas: kartu masih terasa "seperti laporan anak TK", minta laporan sungguhan — tren bulanan per tahun (2025, 2026, dst), bukan cuma ringkasan 1 periode. Ditindaklanjuti (commit `3bf8208`, `85ef7b9`):
+
+- **`monthly-trend.ts`** (baru) — pemasukan vs pengeluaran per bulan kalender, across SEMUA histori posted. Sengaja baca `journal_lines`/`accounts` (account_type) langsung, BUKAN `transaction_categories` (supaya tetap benar meski ada transaksi belum dikategorikan — lihat §4a) dan BUKAN `mv_account_balances` (supaya tidak kena basi lagi seperti kejadian sebelumnya).
+- **Halaman publik**: section "Tren Bulanan" — bar chart asli per tahun (Jan-Des diisi penuh, bulan kosong = batang tinggi 0%, bukan di-skip, supaya tahun bisa dibandingkan apple-to-apple), independen dari period picker di atasnya (satu section, semua tahun sekaligus).
+- **Gambar share**: versi ringkas 6 bulan terakhir di kartu itu sendiri (bukan cuma di halaman web) — karena keluhan awal user spesifik soal GAMBAR-nya yang terasa kosong.
+- **Bug halus ditemukan sendiri saat verifikasi**: chart di gambar awalnya SKIP bulan kosong (slice 6 entri terakhir dari array yang cuma berisi bulan-berdata) alih-alih nunjukkin batang nol — jadi label bulan bisa nggak berurutan (mis. "Feb, Apr, Mei" tanpa "Mar") tanpa indikasi ada gap. Diperbaiki: hitung 6 bulan kalender mundur dari bulan terakhir yang ada datanya, isi yang kosong dengan nol.
+
+**Verifikasi**: sempat salah baca hasil — navigasi awal ke halaman publik produksi lewat Browser pane sekilas nampilin halaman LOGIN, ternyata cuma race condition render (network log nunjukkin komponen & API call sebenarnya sudah sukses di baliknya) — begitu di-`get_page_text` ulang setelah semua request selesai, kontennya benar (4 tahun 2023-2026, semua 12 bulan tampil). **Kalau nemu gejala serupa (halaman publik sempat nampilin UI yang salah) di sesi depan, coba cek ulang setelah beberapa saat sebelum menyimpulkan ada bug** — kemungkinan besar cuma timing render awal.
+
+---
+
 ## 4. Commit Sesi Ini (`main`, sudah dipush & live)
 
 - `1c18292` `docs: add design spec for Transparansi Keuangan Umum`
@@ -75,6 +88,8 @@ User kasih feedback langsung setelah coba kartu/gambar di §1: desain gambar "ng
 - `a3695a2` `fix(docker): install Alpine-compatible Chromium for Puppeteer`
 - `8c5d682` `docs: record production fixes (tenant proxy secret, Puppeteer/Alpine)`
 - `66d2065` `feat(reports): redesign finance share card + add "Semua Data" period`
+- `3bf8208` `feat(reports): add multi-year monthly trend to finance transparency`
+- `85ef7b9` `fix(reports): gap-fill trailing months in share-card trend chart`
 
 Push langsung ke `main` tanpa staging, atas instruksi eksplisit user sesi ini ("langsung push aja selalu biar bisa test") — lihat memory `user-vibe-coder`.
 
