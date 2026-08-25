@@ -30,6 +30,13 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
         navigateFallback: '/index.html',
+        // Without this, the SW's navigation fallback swallows /api/* too —
+        // every top-level GET navigation (not just SPA routes) gets served
+        // cached index.html instead of hitting the network. That includes
+        // the Google OAuth callback redirect (a real page navigation, not a
+        // fetch), so the auth code/state never reached the backend at all;
+        // it just silently landed back on the SPA shell every time.
+        navigateFallbackDenylist: [/^\/api\//],
         // Tanpa ini, SW lama bisa terus menyajikan build basi dari cache
         // walau dev server sudah mati / origin dipakai ulang oleh project
         // lain — SW baru wajib langsung ambil alih & buang cache lama.
