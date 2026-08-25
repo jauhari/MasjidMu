@@ -1,22 +1,193 @@
-# Handoff — MasjidMu v2
+# Handoff — MasjidMu v2 / MizanMu
 
-**Tanggal:** 2026-07-15
-**Branch aktif:** `feat/pap-import` (sudah pushed ke `origin/feat/pap-import`)
-**Tenant uji publik:** `lazismu-ponjong`
-**Stack:** Vue 3 + Vite/Cloudflare Pages (frontend), Hono + Drizzle + Neon/Render (backend)
+**Tanggal:** 2026-08-25  
+**Branch aktif:** `main` (sudah dipush ke `origin/main`)  
+**Domain Produksi:** Frontend `https://mizanmu.pages.dev`, Backend `https://masjidmu-backend.onrender.com`  
+**Stack:** Vue 3 + Vite + Reka UI + Cloudflare Pages (frontend), Hono + Better-Auth + Drizzle + Neon PostgreSQL / Render (backend)
 
 ---
 
-## Status sesi terakhir
+## 1. Ringkasan Sesi Terakhir (Google OAuth & Auth System Fix)
 
-| Area | Status |
-|---|---|
-| Impor Rekapan PAP dari Excel/foto | Selesai dan deployed |
-| OCR foto PAP: clipboard, validasi, rotasi, progres | Selesai |
-| Dashboard arus kas rolling 12 bulan | Selesai dan deployed |
-| CoA: picker akun induk dan layout modal | Selesai |
-| Transparansi publik Dana PAP | Selesai, published, dan diuji di production |
-| Dokumentasi/import changelog | Diperbarui di sesi ini |
+Pada sesi ini diselesaikan perbaikan menyeluruh pada alur autentikasi **Login dengan Google** (*social sign-in*), integrasi multi-tenant profil user, serta perbaikan proxy Cloudflare Pages Functions.
+
+| Area | Masalah Sebelumnya | Solusi / Status |
+|---|---|---|
+| **Better-Auth Account Linking** | Error saat user login Google jika emailnya sudah pernah terdaftar dengan kata sandi (*credential*). | Mengaktifkan `account: { accountLinking: { enabled: true, trustedProviders: ['google'] } }` di Better-Auth. |
+| **Koneksi Database SSL (Neon)** | `pg.Pool` hanya mengaktifkan SSL jika `NODE_ENV === 'production'`. Di local dev, koneksi ke Neon timeout/hang. | Mengaktifkan SSL otomatis jika `DATABASE_URL` mengandung `sslmode=require` atau `neon.tech`. |
+| **Origin & Cookie Mismatch** | `BETTER_AUTH_URL` di `.env.local` sebelumnya mengarah ke `:3001` (backend), sehingga cookie tidak terbawa ke frontend `:5173`. | Mengarahkan `BETTER_AUTH_URL` ke origin frontend (`http://localhost:5173` di dev, `https://mizanmu.pages.dev` di prod). |
+| **Cloudflare Pages Proxy** | Proxy `functions/api/[[path]].ts` sebelumnya meng-hardcode origin ke domain lama `https://hisabmu.pages.dev` dan berpotensi memotong multi-cookie `Set-Cookie`. | Menghapus override origin lama dan menambahkan pelestarian multi-cookie menggunakan `getSetCookie()`. |
+| **Multi-Tenant User Sync** | ID user Google (`auth.user.id`) tidak otomatis terhubung ke tabel `users` per lembaga/tenant di Neon DB. | Menambahkan fungsi `syncUserAuthId` dan pencarian user by `(authUserId OR email)` pada `ensureUserMapping`. |
+| **Feedback Error Login UI** | Tidak ada penanganan parameter query `?error=...` di halaman login saat Google OAuth gagal. | Menambahkan `onMounted` di `LoginView.vue` untuk mendeteksi `route.query.error` dan menampilkan pesan ramah. |
+
+---
+
+## 2. Rincian Teknis & Arsitektur Auth
+
+### 2.1 Alur Autentikasi Google OAuth (End-to-End)
+
+```
+[Browser: mizanmu.pages.dev/login]
+        │
+        ▼ 1. Klik "Lanjutkan dengan Google"
+[POST /api/auth/sign-in/social] ──(Cloudflare Proxy)──► [Hono Backend: onrender.com]
+        │                                                          │
+        │ ◄──────── 2. Set Cookie: __Secure-mizanmu.state ────────┘
+        │ ◄────────    Redirect: accounts.google.com ─────────────┘
+        ▼
+[Google Consent & Account Chooser]
+        │
+        ▼ 3. Redirect ke callback URL
+[GET /api/auth/callback/google?code=...&state=...]
+        │
+   (Cloudflare Proxy dengan Cookie State)
+        │
+        ▼
+[Better-Auth Handler (Render Backend)]
+        │ ── Pertukaran code ke tokens via Google Token Endpoint
+        │ ── Link Google Account ke user di tabel user (Neon DB)
+        │ ── Set Cookie: __Secure-mizanmu.session_token
+        ▼
+[302 Redirect ke https://mizanmu.pages.dev/]
+        │
+        ▼ 4. Inisialisasi Frontend Vue SPA
+[GET /api/auth/get-session] ──► Validasi Sesi ──► Berhasil
+[GET /api/v1/me] ───────────► Sinkronisasi Lembaga & Role ──► Masuk Dashboard!
+```
+
+---
+
+## 3. Implementasi & Perubahan File
+
+### Backend
+
+1. **`backend/src/db/client.ts`**
+   - Mengaktifkan SSL pada `pg.Pool` secara dinamis:
+     ```ts
+     ssl:
+       env.NODE_ENV === 'production' ||
+       env.DATABASE_URL.includes('sslmode=require') ||
+       env.DATABASE_URL.includes('neon.tech')
+         ? { rejectUnauthorized: false }
+         : false,
+     ```
+
+2. **`backend/src/lib/auth.ts`**
+   - Menambahkan opsi `accountLinking`:
+     ```ts
+     account: {
+       accountLinking: {
+         enabled: true,
+         trustedProviders: ['google'],
+       },
+     },
+     ```
+   - Memperluas `trustedOrigins` dengan wildcard domain (`*.mizanmu.id`, `*.pages.dev`, `*.pcmponjong.id`, `*.hisabmu.id`, `*.masjidmu.id`, `https://masjidmu-backend.onrender.com`).
+
+3. **`backend/src/lib/user-mapping.ts`**
+   - Menambahkan `syncUserAuthId(auth: AuthUserSnapshot)`: Memperbarui `authUserId` pada tabel `users` untuk email yang cocok secara otomatis.
+   - Memperbarui `ensureUserMapping`: Mencocokkan user berdasarkan `(authUserId OR email)` dalam tenant untuk mencegah konflik constraint `unique(tenant_id, email)`.
+
+4. **`backend/src/middleware/session.ts`**
+   - Memanggil `syncUserAuthId` saat session berhasil divalidasi dengan cache in-memory (TTL 5 menit) untuk meminimalkan beban database.
+
+### Frontend
+
+1. **`frontend/functions/api/[[path]].ts`** (Cloudflare Pages Function)
+   - Menghapus baris legacy yang memaksa `headers.set('origin', 'https://hisabmu.pages.dev')`.
+   - Menambahkan pelestarian raw `Set-Cookie` headers:
+     ```ts
+     if (typeof upstream.headers.getSetCookie === 'function') {
+       const cookies = upstream.headers.getSetCookie();
+       if (cookies.length > 0) {
+         outHeaders.delete('set-cookie');
+         for (const cookie of cookies) {
+           outHeaders.append('set-cookie', cookie);
+         }
+       }
+     }
+     ```
+
+2. **`frontend/src/features/auth/LoginView.vue`**
+   - Menambahkan penanganan `route.query.error` pada `onMounted` agar error OAuth (seperti akun kadaluwarsa atau penolakan provider) langsung terlihat di layar.
+
+3. **`backend/.env.local`**
+   - Memperbarui `BETTER_AUTH_URL=http://localhost:5173` agar alur callback dev lokal berjalan pada origin frontend.
+
+---
+
+## 4. Konfigurasi Environment & Production Checklist
+
+### A. Render (Backend `masjidmu-backend`)
+
+Pada **Render Dashboard** → **Environment Variables**:
+
+| Variable | Nilai yang Benar | Keterangan |
+|---|---|---|
+| `NODE_ENV` | `production` | Mode production |
+| `PORT` | `3000` | Port listen di dalam container Docker |
+| `DATABASE_URL` | `postgresql://masjidmu_app:...@...neon.tech/neondb?sslmode=require` | App role NOBYPASSRLS |
+| `BETTER_AUTH_URL` | `https://mizanmu.pages.dev` | **Wajib origin frontend publik** |
+| `BETTER_AUTH_SECRET` | *(string random 32+ char)* | Kunci enkripsi sesi |
+| `GOOGLE_CLIENT_ID` | `5420986...apps.googleusercontent.com` | OAuth Client ID Google |
+| `GOOGLE_CLIENT_SECRET` | `GOCSPX-...` | OAuth Client Secret Google |
+| `PUBLIC_TENANT_PROXY_SECRET`| *(string secret)* | HMAC signature untuk tenant proxy |
+
+### B. Cloudflare Pages (Project `mizanmu`)
+
+Pada **Cloudflare Dashboard** → **Workers & Pages** → Project `mizanmu` → **Settings** → **Environment variables**:
+
+| Variable | Nilai | Keterangan |
+|---|---|---|
+| `API_ORIGIN` | `https://masjidmu-backend.onrender.com` | Target proxy `/api/*` ke Render |
+| `PUBLIC_TENANT_PROXY_SECRET` | *(string secret yang sama dengan Render)* | Untuk verifikasi subdomain proxy |
+
+### C. Google Cloud Console (OAuth 2.0 Client ID)
+
+Pada [Google Cloud Console](https://console.cloud.google.com/apis/credentials):
+
+* **Authorized JavaScript origins:**
+  - `http://localhost:5173`
+  - `http://localhost:3001`
+  - `https://mizanmu.pages.dev`
+  - `https://mizanmu.id`
+* **Authorized redirect URIs:**
+  - `http://localhost:5173/api/auth/callback/google`
+  - `http://localhost:3001/api/auth/callback/google`
+  - `https://mizanmu.pages.dev/api/auth/callback/google`
+  - `https://mizanmu.id/api/auth/callback/google`
+  - `https://masjidmu-backend.onrender.com/api/auth/callback/google`
+
+---
+
+## 5. Perintah Validasi & Operasional
+
+```bash
+# Masuk ke direktori monorepo
+cd "masjidmu-v2"
+
+# 1. Typecheck Frontend & Backend
+pnpm --filter @masjidmu/backend typecheck
+pnpm --filter @masjidmu/frontend typecheck
+
+# 2. Menjalankan Seluruh Unit Test Backend
+pnpm --filter @masjidmu/backend test
+
+# 3. Build & Deploy Frontend ke Cloudflare Pages
+pnpm --filter @masjidmu/frontend build
+pnpm --filter @masjidmu/frontend deploy:cf
+
+# 4. Menjalankan Server Lokal
+pnpm --filter @masjidmu/backend dev   # Port 3001
+pnpm --filter @masjidmu/frontend dev  # Port 5173
+```
+
+---
+
+## 6. Commit Terkait di `main`
+
+- `113f39a` `fix(auth): enable google account linking, dynamic pages.dev origin, and sync user auth id`
+- `cf7f0a7` `fix(ui): display error query parameter on login page`
 
 ---
 
