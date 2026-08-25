@@ -57,3 +57,15 @@ services:
       # Tanpa ini endpoint parse-images mengembalikan 503 ocr_not_configured.
       - key: ANTHROPIC_API_KEY
         sync: false
+      # Wajib untuk halaman publik /transparansi/* (Dana PAP & Keuangan Umum)
+      # saat diakses via domain mizanmu.pages.dev bersama (bukan subdomain
+      # {slug}.mizanmu.id sendiri) -- lihat middleware/tenant.ts
+      # (verifiedProxySlug) dan frontend/functions/api/[[path]].ts
+      # (signTenantSlug). HARUS nilai yang SAMA PERSIS dengan env var
+      # `PUBLIC_TENANT_PROXY_SECRET` di Cloudflare Pages (dashboard proyek
+      # Pages -> Settings -> Environment variables) -- keduanya menandatangani
+      # dan memverifikasi HMAC yang sama. Tanpa ini, semua halaman transparansi
+      # publik gagal dengan "tenant_context_required" untuk tenant tanpa
+      # subdomain sendiri.
+      - key: PUBLIC_TENANT_PROXY_SECRET
+        sync: false
