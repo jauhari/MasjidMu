@@ -21,7 +21,7 @@ export function formatApiError(err: unknown, fallback = 'Terjadi kesalahan'): st
     name?: string;
   };
   if (e?.name === 'TimeoutError' || e?.message?.toLowerCase().includes('timed out')) {
-    return 'Koneksi ke server terlalu lama. Pastikan backend berjalan di port 3001, lalu muat ulang.';
+    return 'Waktu tunggu habis sebelum server merespons. Periksa koneksi internet Anda, lalu coba lagi.';
   }
 
   const body = e?.body;

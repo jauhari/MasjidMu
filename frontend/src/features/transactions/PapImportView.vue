@@ -91,6 +91,8 @@ const sheetName = ref('');
 const parsing = ref(false);
 const imageParsePhase = ref<ImageParsePhase>('idle');
 const uploadProgress = ref<number | null>(null);
+const processingSeconds = ref(0);
+let processingTimer: ReturnType<typeof setInterval> | null = null;
 const committing = ref(false);
 const loadingMappings = ref(false);
 const error = ref<string | null>(null);
@@ -157,6 +159,11 @@ function confidenceLabel(value: ReviewRow['confidence']): string {
   return value === 'high' ? 'Tinggi' : value === 'medium' ? 'Sedang' : 'Rendah';
 }
 function fileSize(size: number): string { return size >= MB ? `${(size / MB).toFixed(1)} MB` : `${Math.ceil(size / 1024)} KB`; }
+function formatElapsed(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes} menit ${seconds} detik` : `${seconds} detik`;
+}
 function sourceRef(row: EditableRow): string { return row.source.ref || `Baris ${row.source.row}`; }
 
 async function loadMappings(): Promise<void> {
@@ -178,6 +185,15 @@ async function loadMappings(): Promise<void> {
 function resetImageProgress(): void {
   imageParsePhase.value = 'idle';
   uploadProgress.value = null;
+  processingSeconds.value = 0;
+  if (processingTimer !== null) {
+    clearInterval(processingTimer);
+    processingTimer = null;
+  }
+}
+function startProcessingTimer(): void {
+  processingSeconds.value = 0;
+  processingTimer = setInterval(() => { processingSeconds.value += 1; }, 1000);
 }
 function addImages(picked: File[]): void {
   if (parsing.value || !picked.length) return;
@@ -251,13 +267,18 @@ async function parseSource(): Promise<void> {
         form.append('rotations', String(item.rotationDegrees));
       });
       response = await postFormDataWithProgress<{ data: ParseResult }>('/api/v1/transactions/_import/pap/parse-images', form, {
-        timeoutMs: 120_000,
+        // OCR pakai extended thinking + sampai 5 gambar sekaligus — durasinya
+        // bervariasi cukup jauh, jadi budget waktu dilebihkan dari perkiraan
+        // "sampai 2 menit" yang ditampilkan ke user supaya tidak timeout duluan
+        // padahal backend masih benar-benar memproses.
+        timeoutMs: 300_000,
         onUploadProgress: ({ loaded, total }) => {
           uploadProgress.value = Math.round((loaded / total) * 100);
         },
         onUploadComplete: () => {
           imageParsePhase.value = 'processing';
           uploadProgress.value = null;
+          startProcessingTimer();
         },
       });
     } else {
@@ -340,7 +361,10 @@ function resetAll(): void {
 }
 
 onMounted(() => { if (allowed.value) void loadMappings(); });
-onBeforeUnmount(() => images.value.forEach((item) => URL.revokeObjectURL(item.url)));
+onBeforeUnmount(() => {
+  images.value.forEach((item) => URL.revokeObjectURL(item.url));
+  if (processingTimer !== null) clearInterval(processingTimer);
+});
 </script>
 
 <template>
@@ -449,11 +473,11 @@ onBeforeUnmount(() => images.value.forEach((item) => URL.revokeObjectURL(item.ur
               <p class="mt-1 text-[11px] text-emerald-800">Berkas sedang dikirim ke server.</p>
             </template>
             <template v-else-if="imageParsePhase === 'processing'">
-              <div class="flex items-center justify-center gap-2 text-xs font-medium text-emerald-900"><Loader2 class="size-3.5 animate-spin" /> Gambar sudah dikirim. OCR sedang membaca {{ images.length }} halaman rekapan.</div>
+              <div class="flex items-center justify-center gap-2 text-xs font-medium text-emerald-900"><Loader2 class="size-3.5 animate-spin" /> OCR sedang membaca {{ images.length }} halaman rekapan… ({{ formatElapsed(processingSeconds) }})</div>
             </template>
-            <p class="mt-1 text-[11px] text-emerald-800">Pemrosesan dapat memerlukan hingga 2 menit. Mohon tidak menutup tab.</p>
+            <p class="mt-1 text-[11px] text-emerald-800">Biasanya selesai dalam waktu singkat, tapi bisa sampai beberapa menit untuk gambar yang lebih sulit dibaca. Mohon tidak menutup tab — halaman ini akan otomatis lanjut begitu selesai.</p>
           </div>
-          <p v-else-if="sourceKind === 'images'" class="text-center text-[11px] text-muted-foreground">Pemrosesan gambar dapat memerlukan waktu hingga 2 menit.</p>
+          <p v-else-if="sourceKind === 'images'" class="text-center text-[11px] text-muted-foreground">Pemrosesan gambar biasanya cepat, bisa sampai beberapa menit untuk gambar yang sulit dibaca.</p>
         </CardContent></Card>
       </div>
     </template>
