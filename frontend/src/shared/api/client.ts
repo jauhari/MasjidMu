@@ -93,7 +93,8 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
 
 let tenantSlug: string | null = null;
 
-const STORAGE_KEY = 'masjidmu.tenantSlug';
+const STORAGE_KEY = 'mizanmu.tenantSlug';
+const LEGACY_STORAGE_KEYS = ['hisabmu.tenantSlug', 'masjidmu.tenantSlug'];
 const REQUEST_TIMEOUT_MS = 15_000;
 const GET_CACHE_TTL_MS = 30_000;
 const GET_CACHE_TTL_REF_MS = 5 * 60_000;
@@ -114,6 +115,16 @@ const getCache = new Map<string, { at: number; data: unknown }>();
 
 if (typeof window !== 'undefined') {
   tenantSlug = window.localStorage.getItem(STORAGE_KEY);
+  if (!tenantSlug) {
+    for (const legacyKey of LEGACY_STORAGE_KEYS) {
+      const legacyVal = window.localStorage.getItem(legacyKey);
+      if (legacyVal) {
+        tenantSlug = legacyVal;
+        window.localStorage.setItem(STORAGE_KEY, legacyVal);
+        break;
+      }
+    }
+  }
   if (tenantSlug === 'admin') {
     tenantSlug = 'al-uula';
     window.localStorage.setItem(STORAGE_KEY, 'al-uula');

@@ -251,7 +251,7 @@ const canPublishReports = computed(() => auth.hasPermission('reports.publish'));
 
 const publicPapUrl = computed(() => {
   const slug = getTenantSlug();
-  return slug ? `https://hisabmu.pages.dev/transparansi/${slug}/pap` : 'https://hisabmu.pages.dev/transparansi/pap';
+  return slug ? `https://mizanmu.pages.dev/transparansi/${slug}/pap` : 'https://mizanmu.pages.dev/transparansi/pap';
 });
 
 async function loadPublicPapStatus(): Promise<void> {

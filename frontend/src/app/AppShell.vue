@@ -184,7 +184,7 @@ async function onSignOut(): Promise<void> {
             <div class="absolute inset-[9px] rotate-45 rounded-sm bg-sidebar"></div>
           </div>
           <div class="flex flex-col leading-tight group-data-[collapsible=icon]:hidden">
-            <span class="text-sm font-semibold text-sidebar-foreground">HisabMu</span>
+            <span class="text-sm font-semibold text-sidebar-foreground">MizanMu</span>
             <span class="text-[11px] text-sidebar-foreground/60">Keuangan Nirlaba</span>
           </div>
         </div>

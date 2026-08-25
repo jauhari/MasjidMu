@@ -1,5 +1,5 @@
 /**
- * Generate fund code following HisabMu / PSAK conventions.
+ * Generate fund code following MizanMu / PSAK conventions.
  *
  * System seeds use short codes: UMUM, ZKT, INF, AML, NHL, WKF.
  * Custom (program/kampanye) codes use the same type prefix + slug:

@@ -7,8 +7,8 @@
  * Run:
  *   pnpm tsx scripts/bootstrap.ts \
  *     --slug=admin \
- *     --tenant-name="MasjidMu Platform" \
- *     --email=admin@masjidmu.id \
+ *     --tenant-name="MizanMu Platform" \
+ *     --email=admin@mizanmu.id \
  *     --password=<min 12 chars> \
  *     --name="Platform Admin"
  *

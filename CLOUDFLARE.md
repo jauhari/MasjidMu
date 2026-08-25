@@ -1,15 +1,15 @@
-# Cloudflare — DNS + Pages deploy (HisabMu)
+# Cloudflare — DNS + Pages deploy (MizanMu)
 
 ## Arsitektur
 
 ```
 Browser
   │
-  ├─ https://app.hisabmu.id          → Cloudflare Pages (Vue SPA + Functions)
+  ├─ https://mizanmu.pages.dev (atau app.mizanmu.id / mizanmu.pcmponjong.id) → Cloudflare Pages
   │       /api/*  ──proxy──►  API_ORIGIN (Render Node Hono)
   │       /*      ──SPA───►  index.html
   │
-  └─ (opsional) https://api.hisabmu.id  → backend langsung (DNS only / health)
+  └─ (opsional) https://api.mizanmu.id  → backend langsung (DNS only / health)
 ```
 
 Same-origin `/api` via Pages Function = cookie better-auth ikut domain app.
@@ -42,7 +42,7 @@ npx wrangler login
 ```bash
 cd masjidmu-v2
 pnpm deploy:cf
-# = build frontend + wrangler pages deploy dist --project-name=hisabmu
+# = build frontend + wrangler pages deploy dist --project-name=mizanmu
 ```
 
 Preview branch:
@@ -53,7 +53,7 @@ pnpm deploy:cf:preview
 
 ### Env wajib di Pages project
 
-Dashboard → **Workers & Pages** → **hisabmu** → **Settings** → **Variables and Secrets**:
+Dashboard → **Workers & Pages** → **mizanmu** → **Settings** → **Variables and Secrets**:
 
 | Name | Value | Environment |
 |------|--------|-------------|
@@ -63,8 +63,8 @@ Tanpa `API_ORIGIN`, UI tetap load; request `/api/*` → JSON `503 api_origin_mis
 
 ### Custom domain
 
-Pages → **hisabmu** → **Custom domains** → `app.hisabmu.id` (atau `masjidmu.id`).  
-DNS di zone Cloudflare: CNAME ke `hisabmu.pages.dev` (otomatis jika domain di akun yang sama).
+Pages → **mizanmu** → **Custom domains** → `app.mizanmu.id`, `mizanmu.pcmponjong.id`, atau `hisabmu.pages.dev`.  
+DNS di zone Cloudflare: CNAME ke `mizanmu.pages.dev` (otomatis jika domain di akun yang sama).
 
 ---
 
@@ -72,7 +72,7 @@ DNS di zone Cloudflare: CNAME ke `hisabmu.pages.dev` (otomatis jika domain di ak
 
 | Type  | Name | Target | Proxy |
 |-------|------|--------|--------|
-| CNAME | `app` / `@` | `hisabmu.pages.dev` | Proxied |
+| CNAME | `app` / `@` | `mizanmu.pages.dev` | Proxied |
 | CNAME | `api` | `<service>.onrender.com` | DNS only (recommended) |
 
 SSL/TLS zone: **Full (strict)**.
@@ -99,10 +99,10 @@ lengkap & batasan free tier di [`backend/RENDER.md`](backend/RENDER.md).
 ```bash
 # ENV penting:
 #   DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL
-#   BETTER_AUTH_URL = https://app.hisabmu.id   (origin FE, same-origin proxy)
+#   BETTER_AUTH_URL = https://app.mizanmu.id   (origin FE, same-origin proxy)
 ```
 
-CORS backend mengizinkan: localhost, `*.hisabmu.id`, `*.masjidmu.id`, `*.pages.dev`.  
+CORS backend mengizinkan: localhost, `*.mizanmu.id`, `*.pcmponjong.id`, `*.hisabmu.id`, `*.masjidmu.id`, `*.pages.dev`.  
 Dengan proxy same-origin, browser jarang butuh CORS ke API langsung.
 
 ---
@@ -111,11 +111,11 @@ Dengan proxy same-origin, browser jarang butuh CORS ke API langsung.
 
 ```bash
 # Static
-curl -I https://hisabmu.pages.dev/
+curl -I https://mizanmu.pages.dev/
 # expect 200
 
 # Proxy (setelah API_ORIGIN + backend hidup)
-curl -s https://hisabmu.pages.dev/api/v1/healthz
+curl -s https://mizanmu.pages.dev/api/v1/healthz
 # atau path health yang ada di backend
 ```
 

@@ -2,7 +2,7 @@
  * Reset better-auth credential password for a user (dev/admin recovery).
  *
  * Run:
- *   pnpm tsx scripts/reset-password.ts --email=admin@masjidmu.id --password='MasjidMu@dev123'
+ *   pnpm tsx scripts/reset-password.ts --email=admin@mizanmu.id --password='MizanMu@dev123'
  */
 import { hashPassword } from 'better-auth/crypto';
 import { sql } from 'drizzle-orm';

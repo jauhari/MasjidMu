@@ -101,11 +101,11 @@ const mergeOpen = ref(false);
 const merging = ref(false);
 const mergeError = ref<string | null>(null);
 
-const EXPANDED_KEY = 'masjidmu.accounts.expanded';
+const EXPANDED_KEY = 'mizanmu.accounts.expanded';
 
 function loadExpanded(): Set<string> {
   try {
-    const raw = localStorage.getItem(EXPANDED_KEY);
+    const raw = localStorage.getItem(EXPANDED_KEY) ?? localStorage.getItem('masjidmu.accounts.expanded');
     if (raw) return new Set(JSON.parse(raw));
   } catch { /* ignore */ }
   return new Set();

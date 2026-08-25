@@ -134,7 +134,7 @@ onMounted(load);
       :crumbs="[{ label: 'Dashboard', to: '/' }, { label: 'Konten' }, { label: 'Profil Masjid' }]"
       :description="
         auth.tenantSlug
-          ? `Data masjid untuk ${auth.tenantSlug}.hisabmu.id — tampil di portal publik.`
+          ? `Data masjid untuk ${auth.tenantSlug}.mizanmu.id — tampil di portal publik.`
           : 'Identitas masjid yang ditampilkan di portal publik'
       "
     >

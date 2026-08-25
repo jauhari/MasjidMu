@@ -41,7 +41,7 @@ const currentTenant = computed(
 /** Nama lembaga di header — prioritaskan nama DB, jangan tampilkan slug mentah. */
 const currentLabel = computed(() => {
   if (currentTenant.value?.name) return currentTenant.value.name;
-  if (auth.tenantDisplayName && auth.tenantDisplayName !== 'HisabMu') {
+  if (auth.tenantDisplayName && auth.tenantDisplayName !== 'MizanMu') {
     return auth.tenantDisplayName;
   }
   if (loading.value) return 'Memuat…';

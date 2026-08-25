@@ -100,7 +100,7 @@ const EDITION_META: Record<
 };
 
 const subdomainPreview = computed(() =>
-  form.slug.trim() ? `${form.slug.trim()}.hisabmu.id` : 'slug.hisabmu.id',
+  form.slug.trim() ? `${form.slug.trim()}.mizanmu.id` : 'slug.mizanmu.id',
 );
 
 const slugChanged = computed(
@@ -300,7 +300,7 @@ onMounted(() => {
                 <div class="min-w-0">
                   <p class="truncate font-semibold text-foreground">{{ t.name }}</p>
                   <p class="mt-0.5 font-mono text-xs text-muted-foreground">
-                    {{ t.slug }}.hisabmu.id
+                    {{ t.slug }}.mizanmu.id
                   </p>
                 </div>
               </div>

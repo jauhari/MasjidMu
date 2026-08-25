@@ -93,7 +93,7 @@ const error = ref<string | null>(null);
 const balance = ref<BalanceSheet | null>(null);
 const activity = ref<ActivitySummary | null>(null);
 const events = ref<EventItem[]>([]);
-const mosqueName = ref(auth.tenantDisplayName || 'HisabMu');
+const mosqueName = ref(auth.tenantDisplayName || 'MizanMu');
 const fundUsage = ref<FundUsageData['data'] | null>(null);
 const cashFlowMonths = ref<{ month: number; year: number; income: number; expense: number }[]>([]);
 const selectedCashFlowKey = ref<string | null>(null);
@@ -506,7 +506,7 @@ function resolveOrgName(profile?: MosqueProfile | null): string {
   if (fromProfile) return fromProfile;
   if (auth.tenantName?.trim()) return auth.tenantName.trim();
   if (auth.tenantDisplayName) return auth.tenantDisplayName;
-  return humanizeSlug(auth.tenantSlug) || 'HisabMu';
+  return humanizeSlug(auth.tenantSlug) || 'MizanMu';
 }
 
 const unpostedCount = computed(

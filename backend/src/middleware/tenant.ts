@@ -35,6 +35,8 @@ import { memGet, memSet } from '../lib/memory-cache.js';
 import type { SessionVars } from './session.js';
 
 const PUBLIC_HOSTS = new Set([
+  'api.mizanmu.id',
+  'admin.mizanmu.id',
   'api.hisabmu.id',
   'admin.hisabmu.id',
 ]);
@@ -50,7 +52,7 @@ const HOME_TENANT_CACHE_TTL_SEC = 60;
 
 // Hosts without their own subdomain-per-tenant DNS yet — fall back to the
 // header/query mechanism like localhost. TEMPORARY: remove once
-// {slug}.hisabmu.id is live and every tenant has a real subdomain; safe in
+// {slug}.mizanmu.id is live and every tenant has a real subdomain; safe in
 // the meantime because permissionResolver still scopes by real
 // (authUserId, tenantId) DB membership — a non-super-admin can't read another
 // tenant's data just by sending a different header value.
@@ -77,8 +79,10 @@ function verifiedProxySlug(slug: string | undefined, ts: string | undefined, sig
 function slugFromHost(host: string): string | null {
   const hostname = host.split(':')[0]!.toLowerCase();
   if (PUBLIC_HOSTS.has(hostname)) return null;
-  const m = hostname.match(/^([a-z0-9][a-z0-9-]*)\.hisabmu\.id$/);
+  const m = hostname.match(/^([a-z0-9][a-z0-9-]*)\.(mizanmu|hisabmu|masjidmu)\.id$/);
   if (m && m[1] !== 'api' && m[1] !== 'admin' && m[1] !== 'www') return m[1];
+  const m2 = hostname.match(/^([a-z0-9][a-z0-9-]*)\.pcmponjong\.id$/);
+  if (m2 && m2[1] !== 'api' && m2[1] !== 'admin' && m2[1] !== 'www' && m2[1] !== 'mizanmu') return m2[1];
   return null;
 }
 
@@ -157,9 +161,9 @@ export const tenantResolver = (): MiddlewareHandler<{ Variables: SessionVars & T
     const devHeader = isPublicApi ? undefined : c.req.header('x-tenant-slug') ?? undefined;
     const devQuery = isPublicApi ? undefined : c.req.query('tenant_slug') ?? undefined;
     const proxySlug = verifiedProxySlug(
-      c.req.header('x-hisabmu-tenant-slug') ?? undefined,
-      c.req.header('x-hisabmu-tenant-ts') ?? undefined,
-      c.req.header('x-hisabmu-tenant-sig') ?? undefined,
+      c.req.header('x-mizanmu-tenant-slug') ?? c.req.header('x-hisabmu-tenant-slug') ?? undefined,
+      c.req.header('x-mizanmu-tenant-ts') ?? c.req.header('x-hisabmu-tenant-ts') ?? undefined,
+      c.req.header('x-mizanmu-tenant-sig') ?? c.req.header('x-hisabmu-tenant-sig') ?? undefined,
     );
     let slug = extractSlug(
       host,

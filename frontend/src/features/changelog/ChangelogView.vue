@@ -47,7 +47,7 @@ const entries: ChangeEntry[] = [
     type: 'fix',
     title: 'Tautan publik PAP dapat dibagikan dari Pages',
     description:
-      'Tautan laporan Dana PAP dari admin kini memakai alamat bersama HisabMu Pages dengan slug lembaga, sehingga tetap terbuka sebelum subdomain produksi tiap lembaga aktif. Route publik juga meneruskan konteks tenant secara aman ke API.',
+      'Tautan laporan Dana PAP dari admin kini memakai alamat bersama MizanMu Pages dengan slug lembaga, sehingga tetap terbuka sebelum subdomain produksi tiap lembaga aktif. Route publik juga meneruskan konteks tenant secara aman ke API.',
     files: [
       'features/reports/ReportsView.vue',
       'features/public-pap/PublicPapView.vue',
@@ -270,7 +270,7 @@ const entries: ChangeEntry[] = [
   <div class="mx-auto flex max-w-3xl flex-col gap-6">
     <PageHeader
       title="Changelog"
-      description="Rekam jejak perubahan aplikasi HisabMu — supaya semua tahu sudah sampai mana."
+      description="Rekam jejak perubahan aplikasi MizanMu — supaya semua tahu sudah sampai mana."
       :crumbs="[{ label: 'Dashboard', to: '/' }, { label: 'Changelog' }]"
     />
 

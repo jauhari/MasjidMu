@@ -28,7 +28,7 @@ export const tenantEditionEnum = pgEnum('tenant_edition', [
 // ─── Tenants ───────────────────────────────────────────────────────────────
 /**
  * Tenants = masjid (one tenant per mosque).
- * Identified by `slug` for subdomain routing: `{slug}.hisabmu.id`.
+ * Identified by `slug` for subdomain routing: `{slug}.mizanmu.id`.
  *
  * RLS NOT enabled here — needed for tenant resolution before context is set.
  */

@@ -315,7 +315,7 @@ onMounted(load);
         </FormField>
         <FormField
           label="Kode"
-          :hint="editing ? 'Kode sistem, tidak bisa diubah' : 'Otomatis dari jenis PSAK + nama (standar HisabMu)'"
+          :hint="editing ? 'Kode sistem, tidak bisa diubah' : 'Otomatis dari jenis PSAK + nama (standar MizanMu)'"
         >
           <div
             class="flex h-10 items-center rounded-md border border-input bg-muted/40 px-3 font-mono text-sm tracking-wide text-foreground"

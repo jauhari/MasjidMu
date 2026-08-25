@@ -44,8 +44,19 @@ async function onGoogleSignIn(): Promise<void> {
     // Redirects the whole page to Google — only returns early on failure
     // (e.g. provider not configured on the server yet).
     await auth.signInWithGoogle();
-  } catch {
-    error.value = 'Login dengan Google belum tersedia. Coba email & kata sandi.';
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.toLowerCase().includes('not enabled') ||
+      msg.toLowerCase().includes('not configured') ||
+      msg.toLowerCase().includes('failed') ||
+      msg.toLowerCase().includes('500')
+    ) {
+      error.value = 'Login dengan Google belum aktif di server. Silakan login dengan Email & Kata Sandi.';
+    } else {
+      error.value = msg || 'Gagal memulai login Google. Coba lagi.';
+    }
+  } finally {
     googleSubmitting.value = false;
   }
 }
@@ -56,11 +67,11 @@ async function onGoogleSignIn(): Promise<void> {
     <Card class="w-full max-w-sm shadow-md">
       <CardHeader class="flex flex-row items-center gap-3 space-y-0 pb-4">
         <div class="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground font-bold">
-          H
+          M
         </div>
         <div>
-          <CardTitle class="text-base">HisabMu</CardTitle>
-          <CardDescription>Akuntansi & transparansi lembaga umat</CardDescription>
+          <CardTitle class="text-base">MizanMu</CardTitle>
+          <CardDescription>Tata kelola & transparansi lembaga umat</CardDescription>
         </div>
       </CardHeader>
       <CardContent>
@@ -95,7 +106,7 @@ async function onGoogleSignIn(): Promise<void> {
                 type="email"
                 required
                 autocomplete="email"
-                placeholder="admin@hisabmu.id"
+                placeholder="admin@mizanmu.id"
               />
             </FormField>
 

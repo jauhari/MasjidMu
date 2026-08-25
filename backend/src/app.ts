@@ -40,9 +40,14 @@ app.use('/api/*', cors({
     if (!origin) return null;
     if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return origin;
     // Production tenants / admin (canonical)
+    if (/^https:\/\/[a-z0-9-]+\.mizanmu\.id$/.test(origin)) return origin;
+    if (/^https:\/\/(www\.)?mizanmu\.id$/.test(origin)) return origin;
+    // Custom domain support (e.g. *.pcmponjong.id)
+    if (/^https:\/\/[a-z0-9-]+\.pcmponjong\.id$/.test(origin)) return origin;
+    if (/^https:\/\/(www\.)?pcmponjong\.id$/.test(origin)) return origin;
+    // Legacy / alternate domain
     if (/^https:\/\/[a-z0-9-]+\.hisabmu\.id$/.test(origin)) return origin;
     if (/^https:\/\/(www\.)?hisabmu\.id$/.test(origin)) return origin;
-    // Legacy / alternate domain
     if (/^https:\/\/[a-z0-9-]+\.masjidmu\.id$/.test(origin)) return origin;
     if (/^https:\/\/(www\.)?masjidmu\.id$/.test(origin)) return origin;
     // Cloudflare Pages preview & production *.pages.dev
@@ -80,7 +85,7 @@ app.get('/healthz', (c) =>
   c.json({ status: 'ok', time: new Date().toISOString(), version: '0.0.0' }),
 );
 
-app.get('/', (c) => c.text('HisabMu API v2'));
+app.get('/', (c) => c.text('MizanMu API v2'));
 
 // ─── Auth ────────────────────────────────────────────────────────────────
 // Per-IP rate limit on sign-in/sign-up to slow down credential stuffing.

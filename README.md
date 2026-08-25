@@ -1,6 +1,6 @@
-# MasjidMu v2
+# MizanMu v2
 
-Backend rewrite — Hono + Drizzle + Neon Postgres. Frontend Vue 3 (existing) di-rewire.
+Platform SaaS Tata Kelola & Akuntansi Lembaga Nirlaba / Keumatan Berkemajuan (Masjid, Pesantren, Lembaga Amal/ZIS, dan Yayasan).
 
 ## Spec & Plan
 

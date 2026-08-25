@@ -13,9 +13,14 @@
  */
 import { createAuthClient } from 'better-auth/vue';
 
+export interface SocialSignInResult {
+  data?: { url?: string; redirect?: boolean } | null;
+  error?: { message?: string; status?: number; statusText?: string } | null;
+}
+
 interface AuthClient {
   signIn: {
-    social: (opts: { provider: 'google'; callbackURL?: string }) => Promise<unknown>;
+    social: (opts: { provider: 'google'; callbackURL?: string }) => Promise<SocialSignInResult>;
   };
 }
 

@@ -46,7 +46,7 @@ function shell(reportType: ReportType, periodLabel: string, body: string, genera
   <h1>${escapeHtml(REPORT_TITLES_ID[reportType])}</h1>
   <div class="meta">Periode: ${escapeHtml(periodLabel)} · Dibuat: ${escapeHtml(new Date(generatedAt).toLocaleString('id-ID'))}</div>
   ${body}
-  <div class="footer">HisabMu · Halaman 1</div>
+  <div class="footer">MizanMu · Halaman 1</div>
 </body></html>`;
 }
 

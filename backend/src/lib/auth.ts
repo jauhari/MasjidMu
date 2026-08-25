@@ -54,24 +54,31 @@ export const auth = betterAuth({
   },
 
   advanced: {
-    cookiePrefix: 'hisabmu',
+    cookiePrefix: 'mizanmu',
     useSecureCookies: env.NODE_ENV === 'production',
     // crossSubDomainCookies INTENTIONALLY OMITTED — we want per-subdomain
-    // scope. Super admin uses admin.hisabmu.id with separate flow.
+    // scope. Super admin uses admin.mizanmu.id with separate flow.
   },
 
   trustedOrigins: [
     'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:5173',
+    'https://mizanmu.id',
+    'https://www.mizanmu.id',
+    'https://admin.mizanmu.id',
+    'https://mizanmu.pages.dev',
+    'https://mizanmu.pcmponjong.id',
+    // Legacy domains during transition
     'https://hisabmu.id',
     'https://www.hisabmu.id',
     'https://admin.hisabmu.id',
-    // Temporary — the actual production frontend until app.hisabmu.id (custom
-    // domain) is set up. Remove once that's live.
     'https://hisabmu.pages.dev',
-    // Wildcard subdomain authoritative origin matching is enforced via Hono
-    // CORS regex in app.ts; better-auth gets a static list of canonical hosts.
+    // Dynamic matching for Cloudflare Pages previews and tenant subdomains
+    /^https:\/\/([a-z0-9-]+\.)*pages\.dev$/,
+    /^https:\/\/([a-z0-9-]+\.)*mizanmu\.id$/,
+    /^https:\/\/([a-z0-9-]+\.)*pcmponjong\.id$/,
+    /^https:\/\/([a-z0-9-]+\.)*hisabmu\.id$/,
   ],
 
   plugins: [

@@ -4,8 +4,8 @@
 #   CLOUDFLARE_API_TOKEN   — Pages:Edit + Account:Read
 #   CLOUDFLARE_ACCOUNT_ID  — Account ID dari dashboard CF
 #
-# Setelah project `hisabmu` dibuat (otomatis di deploy pertama), set env di
-# CF Dashboard → Workers & Pages → hisabmu → Settings → Variables:
+# Setelah project `mizanmu` dibuat (otomatis di deploy pertama), set env di
+# CF Dashboard → Workers & Pages → mizanmu → Settings → Variables:
 #   API_ORIGIN = https://<backend-host>   (tanpa trailing slash)
 
 name: Deploy Cloudflare Pages
@@ -54,4 +54,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: frontend
-          command: pages deploy dist --project-name=hisabmu --branch=${{ github.ref_name }}
+          command: pages deploy dist --project-name=mizanmu --branch=${{ github.ref_name }}

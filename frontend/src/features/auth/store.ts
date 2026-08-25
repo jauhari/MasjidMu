@@ -64,10 +64,10 @@ export const useAuthStore = defineStore('auth', () => {
   const isSuperAdmin = ref(false);
   const permissions = ref<Set<string>>(new Set());
 
-  /** Label tampilan: tenantName → title-case slug → HisabMu */
+  /** Label tampilan: tenantName → title-case slug → MizanMu */
   const tenantDisplayName = computed(() => {
     if (tenantName.value?.trim()) return tenantName.value.trim();
-    return humanizeSlug(tenantSlug.value) || 'HisabMu';
+    return humanizeSlug(tenantSlug.value) || 'MizanMu';
   });
 
   function hasPermission(code: string): boolean {
@@ -151,7 +151,14 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** Redirects to Google's consent screen; resumes via init() on return. */
   async function signInWithGoogle(): Promise<void> {
-    await authClient.signIn.social({ provider: 'google', callbackURL: '/' });
+    const callbackURL = typeof window !== 'undefined' ? `${window.location.origin}/` : '/';
+    const res = await authClient.signIn.social({ provider: 'google', callbackURL });
+    if (res?.error) {
+      throw new Error(res.error.message || 'Login dengan Google gagal');
+    }
+    if (res?.data?.url) {
+      window.location.href = res.data.url;
+    }
   }
 
   /**

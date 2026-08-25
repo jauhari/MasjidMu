@@ -9,8 +9,8 @@
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint src --ext .vue,.ts",
-    "deploy:cf": "wrangler pages deploy dist --project-name=hisabmu --branch=main",
-    "deploy:cf:preview": "wrangler pages deploy dist --project-name=hisabmu"
+    "deploy:cf": "wrangler pages deploy dist --project-name=mizanmu --branch=main",
+    "deploy:cf:preview": "wrangler pages deploy dist --project-name=mizanmu"
   },
   "dependencies": {
     "@internationalized/date": "^3.12.2",

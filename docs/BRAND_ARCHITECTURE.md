@@ -1,17 +1,17 @@
-# Brand Architecture — HisabMu
+# Brand Architecture — MizanMu
 
-Status: **Decided 2026-06-30** (nama kerja; `AmanahMu` = runner-up, ganti = find-replace).
+Status: **Decided 2026-08-25** (Master Brand resmi: **MizanMu**).
 
 ## Master brand
 
-**HisabMu** — platform akuntansi & transparansi untuk lembaga umat.
+**MizanMu** — platform tata kelola, akuntansi & transparansi lembaga umat berkemajuan (Masjid, Pesantren, Lembaga Amal/ZIS, Yayasan, dan Organisasi Sosial).
 
-- "Hisab" = perhitungan/akuntansi (Arab) + makna *yaumul hisab* (pertanggungjawaban).
-- Tetap ber-suffix **"-Mu"** (sesuai keputusan), tapi cukup luas untuk memayungi banyak
-  vertikal — tidak terkunci ke "masjid".
-- Tagline kerja: *"Rapikan hisab dunia."*
+- "Mizan" = neraca/timbangan keadilan (Arab: *Al-Mizan*) + akuntansi seimbang (*double-entry*) & pertanggungjawaban amanah.
+- Ber-suffix **"-Mu"** (identitas gerakan & persyarikatan berkemajuan), memayungi seluruh vertikal kelembagaan sosial/keagamaan.
+- Tagline resmi: *"Neraca Akuntabilitas Lembaga Umat Berkemajuan"*
+- Tagline alternatif: *"Satu Platform untuk Tata Kelola, Keuangan, dan Transparansi Amanah Lembaga."*
 
-## Keluarga edisi (semua "by HisabMu")
+## Keluarga edisi (semua "by MizanMu")
 
 Satu codebase (multi-tenant), beda template laporan + istilah + onboarding per edisi.
 
