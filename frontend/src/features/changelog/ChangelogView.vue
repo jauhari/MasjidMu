@@ -29,6 +29,21 @@ const typeBadge: Record<ChangeEntry['type'], { icon: unknown; label: string; cls
 
 const entries: ChangeEntry[] = [
   {
+    date: '2026-08-25',
+    type: 'feature',
+    title: 'Transparansi Keuangan Umum',
+    description:
+      'Admin kini dapat mempublikasikan ringkasan keuangan seluruh lembaga dari halaman Laporan Keuangan — posisi kas saat ini serta kategori pemasukan dan pengeluaran terbesar — tanpa perlu Dana PSAK 109. Jamaah dapat membuka tautan publik tanpa login, dan hasilnya bisa diunduh sebagai gambar untuk dibagikan ke WhatsApp. Berdampingan dengan Transparansi Dana PAP yang sudah ada.',
+    files: [
+      'features/reports/ReportsView.vue',
+      'features/public-finance/PublicFinanceView.vue',
+      'modules/accounting/public-finance/route.ts',
+      'modules/accounting/public-finance/service.ts',
+      'modules/accounting/reports/services/category-breakdown.ts',
+      'db/migrations/sql/097_public_finance_reports.sql',
+    ],
+  },
+  {
     date: '2026-07-15',
     type: 'feature',
     title: 'Transparansi publik Dana PAP',

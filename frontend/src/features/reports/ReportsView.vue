@@ -90,6 +90,12 @@ const publicPapSaving = ref(false);
 const publicPapError = ref<string | null>(null);
 const publishConfirmOpen = ref(false);
 const revokeConfirmOpen = ref(false);
+const publicFinanceStatus = ref<PublicFinanceStatus | null>(null);
+const publicFinanceLoading = ref(false);
+const publicFinanceSaving = ref(false);
+const publicFinanceError = ref<string | null>(null);
+const publishFinanceConfirmOpen = ref(false);
+const revokeFinanceConfirmOpen = ref(false);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const data = ref<any>(null);
@@ -106,6 +112,13 @@ interface PublicPapStatus {
   fundCode: string;
   fundName: string;
   fundIsActive: boolean;
+}
+
+interface PublicFinanceStatus {
+  isPublished: boolean;
+  publishedAt: string | null;
+  revokedAt: string | null;
+  updatedAt: string;
 }
 
 const REPORT_TYPE_SET = new Set(REPORTS.map((r) => r.value));
@@ -170,6 +183,11 @@ async function loadFunds(): Promise<void> {
 }
 
 async function load(): Promise<void> {
+  if (periodMode.value === 'custom' && (!dateFrom.value || !dateTo.value)) {
+    data.value = null;
+    error.value = null;
+    return;
+  }
   if (reportType.value === 'buku-dana' && !fundId.value) {
     data.value = null;
     error.value = 'Pilih dana terlebih dahulu untuk Buku Dana';
@@ -254,6 +272,11 @@ const publicPapUrl = computed(() => {
   return slug ? `https://mizanmu.pages.dev/transparansi/${slug}/pap` : 'https://mizanmu.pages.dev/transparansi/pap';
 });
 
+const publicFinanceUrl = computed(() => {
+  const slug = getTenantSlug();
+  return slug ? `https://mizanmu.pages.dev/transparansi/${slug}` : 'https://mizanmu.pages.dev/transparansi';
+});
+
 async function loadPublicPapStatus(): Promise<void> {
   if (!canPublishReports.value) return;
   publicPapLoading.value = true;
@@ -305,6 +328,68 @@ async function copyPublicPapUrl(): Promise<void> {
   await navigator.clipboard?.writeText(publicPapUrl.value);
 }
 
+async function loadPublicFinanceStatus(): Promise<void> {
+  if (!canPublishReports.value) return;
+  publicFinanceLoading.value = true;
+  publicFinanceError.value = null;
+  try {
+    const res = await api.get<{ data: PublicFinanceStatus | null }>('/api/v1/reports/public-finance');
+    publicFinanceStatus.value = res.data;
+  } catch (err) {
+    publicFinanceError.value = (err as Error).message;
+  } finally {
+    publicFinanceLoading.value = false;
+  }
+}
+
+async function publishPublicFinance(): Promise<void> {
+  publicFinanceSaving.value = true;
+  publicFinanceError.value = null;
+  try {
+    await api.post('/api/v1/reports/public-finance/publish', {});
+    publishFinanceConfirmOpen.value = false;
+    await loadPublicFinanceStatus();
+  } catch (err) {
+    const e = err as { body?: { error?: string; detail?: string }; message?: string };
+    publicFinanceError.value = e.body?.detail ?? e.body?.error ?? e.message ?? 'Gagal mempublikasikan laporan';
+  } finally {
+    publicFinanceSaving.value = false;
+  }
+}
+
+async function revokePublicFinance(): Promise<void> {
+  publicFinanceSaving.value = true;
+  publicFinanceError.value = null;
+  try {
+    await api.post('/api/v1/reports/public-finance/revoke', {});
+    revokeFinanceConfirmOpen.value = false;
+    await loadPublicFinanceStatus();
+  } catch (err) {
+    const e = err as { body?: { error?: string; detail?: string }; message?: string };
+    publicFinanceError.value = e.body?.detail ?? e.body?.error ?? e.message ?? 'Gagal mencabut publikasi';
+  } finally {
+    publicFinanceSaving.value = false;
+  }
+}
+
+async function copyPublicFinanceUrl(): Promise<void> {
+  await navigator.clipboard?.writeText(publicFinanceUrl.value);
+}
+
+function publicFinanceImageUrl(): string {
+  const tenant = getTenantSlug();
+  const params = new URLSearchParams({ format: 'image' });
+  if (periodMode.value === 'custom') {
+    if (dateFrom.value) params.set('startDate', dateFrom.value);
+    if (dateTo.value) params.set('endDate', dateTo.value);
+  } else {
+    params.set('month', String(month.value));
+    params.set('year', String(year.value));
+  }
+  if (tenant) params.set('tenant_slug', tenant);
+  return `/api/public/keuangan?${params.toString()}`;
+}
+
 // ─── Data-integrity glances — murni tampilan, tidak mengubah angka apa pun.
 // Toleransi 0.5 (setengah rupiah) untuk meredam noise pembulatan string.
 const balanceSheetDiff = computed(() => {
@@ -351,7 +436,7 @@ async function bootReports(): Promise<void> {
     suppressWatchLoad.value = false;
   }
   await load();
-  await loadPublicPapStatus();
+  await Promise.all([loadPublicPapStatus(), loadPublicFinanceStatus()]);
 }
 
 onMounted(() => {
@@ -484,6 +569,63 @@ watch(
           <div class="flex gap-2">
             <Button variant="secondary" size="sm" @click="copyPublicPapUrl"><Copy class="h-3.5 w-3.5" /> Salin</Button>
             <a :href="publicPapUrl" target="_blank" rel="noopener">
+              <Button variant="secondary" size="sm"><ExternalLink class="h-3.5 w-3.5" /> Buka</Button>
+            </a>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+
+    <Card v-if="canPublishReports">
+      <CardContent class="space-y-3 px-4 py-4">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p class="text-sm font-semibold text-foreground">Transparansi Keuangan Umum</p>
+            <p class="mt-1 max-w-2xl text-xs text-muted-foreground">
+              Publikasikan ringkasan posisi kas dan kategori pemasukan/pengeluaran terbesar untuk jamaah — untuk seluruh lembaga, tidak terikat 1 dana. Cocok untuk lembaga yang tidak memakai Dana PSAK 109.
+            </p>
+          </div>
+          <span
+            class="inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-semibold"
+            :class="publicFinanceStatus?.isPublished ? 'bg-emerald-100 text-emerald-700' : 'bg-muted text-muted-foreground'"
+          >
+            {{ publicFinanceStatus?.isPublished ? 'Dipublikasikan' : 'Belum publik' }}
+          </span>
+        </div>
+
+        <Alert v-if="publicFinanceError" variant="destructive">
+          <AlertDescription>{{ publicFinanceError }}</AlertDescription>
+        </Alert>
+
+        <div class="flex flex-wrap gap-2">
+          <Button
+            v-if="!publicFinanceStatus?.isPublished"
+            :disabled="publicFinanceSaving"
+            :loading="publicFinanceSaving"
+            @click="publishFinanceConfirmOpen = true"
+          >
+            Publikasikan
+          </Button>
+          <Button
+            v-if="publicFinanceStatus?.isPublished"
+            variant="secondary"
+            :disabled="publicFinanceSaving"
+            @click="revokeFinanceConfirmOpen = true"
+          >
+            Cabut
+          </Button>
+          <a v-if="publicFinanceStatus?.isPublished" :href="publicFinanceImageUrl()" target="_blank" rel="noopener">
+            <Button variant="secondary"><Download class="h-3.5 w-3.5" /> Unduh Gambar</Button>
+          </a>
+        </div>
+
+        <div v-if="publicFinanceStatus?.isPublished" class="flex flex-col gap-2 rounded-xl border bg-muted/30 px-3 py-3 text-xs sm:flex-row sm:items-center">
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-muted-foreground">{{ publicFinanceUrl }}</p>
+          </div>
+          <div class="flex gap-2">
+            <Button variant="secondary" size="sm" @click="copyPublicFinanceUrl"><Copy class="h-3.5 w-3.5" /> Salin</Button>
+            <a :href="publicFinanceUrl" target="_blank" rel="noopener">
               <Button variant="secondary" size="sm"><ExternalLink class="h-3.5 w-3.5" /> Buka</Button>
             </a>
           </div>
@@ -1298,6 +1440,22 @@ watch(
       confirm-label="Cabut"
       :loading="publicPapSaving"
       @confirm="revokePublicPap"
+    />
+    <ConfirmDialog
+      v-model:open="publishFinanceConfirmOpen"
+      title="Publikasikan ringkasan keuangan umum?"
+      message="Halaman publik akan dapat diakses tanpa login. Data yang tampil hanya ringkasan posisi kas dan kategori pemasukan/pengeluaran terbesar."
+      confirm-label="Publikasikan"
+      :loading="publicFinanceSaving"
+      @confirm="publishPublicFinance"
+    />
+    <ConfirmDialog
+      v-model:open="revokeFinanceConfirmOpen"
+      title="Cabut publikasi ringkasan keuangan umum?"
+      message="Halaman publik tidak akan bisa diakses lagi sampai dipublikasikan ulang."
+      confirm-label="Cabut"
+      :loading="publicFinanceSaving"
+      @confirm="revokePublicFinance"
     />
   </div>
 </template>

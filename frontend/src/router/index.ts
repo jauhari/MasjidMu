@@ -21,6 +21,18 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   {
+    path: '/transparansi',
+    name: 'public-finance-transparency',
+    component: () => import('@/features/public-finance/PublicFinanceView.vue'),
+    meta: { public: true },
+  },
+  {
+    path: '/transparansi/:tenantSlug',
+    name: 'public-finance-transparency-slug',
+    component: () => import('@/features/public-finance/PublicFinanceView.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/',
     component: () => import('@/app/AppShell.vue'),
     meta: { requiresAuth: true },
