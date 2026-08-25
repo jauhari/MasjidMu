@@ -148,6 +148,26 @@ export const publicPapReports = pgTable(
   }),
 );
 
+// ─── Public general finance transparency (no fund required) ───────────────
+export const publicFinanceReports = pgTable(
+  'public_finance_reports',
+  {
+    tenantId: uuid()
+      .primaryKey()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    isPublished: boolean().default(false).notNull(),
+    publishedAt: timestamp({ withTimezone: true }),
+    publishedBy: uuid().references(() => users.id),
+    revokedAt: timestamp({ withTimezone: true }),
+    revokedBy: uuid().references(() => users.id),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    publishedIdx: index().on(t.isPublished),
+  }),
+);
+
 // ─── Transaction Categories (link kategori → COA mapping) ──────────────────
 // Optional defaultFundId: one-tap template for LAZ programs (e.g. "Infaq PAP"
 // → debit Kas PAP, credit Infaq, fund PAP 2026).
@@ -373,6 +393,7 @@ export const journalLines = pgTable(
 export type Account = typeof accounts.$inferSelect;
 export type Fund = typeof funds.$inferSelect;
 export type PublicPapReport = typeof publicPapReports.$inferSelect;
+export type PublicFinanceReport = typeof publicFinanceReports.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
 export type TransactionLine = typeof transactionLines.$inferSelect;
 export type Journal = typeof journals.$inferSelect;

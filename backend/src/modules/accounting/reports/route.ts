@@ -60,6 +60,11 @@ import {
   publishPublicPap,
   revokePublicPap,
 } from '../public-pap/service.js';
+import {
+  getPublicFinanceStatus,
+  publishPublicFinance,
+  revokePublicFinance,
+} from '../public-finance/service.js';
 
 function resolveFormat(raw: string | undefined): ExportFormat {
   if (raw === 'pdf' || raw === 'xlsx') return raw;
@@ -202,6 +207,27 @@ export const reportsRoute = new Hono<{
 
   .post('/public-pap/revoke', requirePermission('reports.publish'), async (c) => {
     const row = await revokePublicPap({
+      tenantId: c.get('tenantId')!,
+      actorAuthUserId: c.get('user')!.id,
+    });
+    return c.json({ data: row });
+  })
+
+  .get('/public-finance', requirePermission('reports.read'), async (c) => {
+    const status = await getPublicFinanceStatus(c.get('tenantId')!);
+    return c.json({ data: status });
+  })
+
+  .post('/public-finance/publish', requirePermission('reports.publish'), async (c) => {
+    const row = await publishPublicFinance({
+      tenantId: c.get('tenantId')!,
+      actorAuthUserId: c.get('user')!.id,
+    });
+    return c.json({ data: row });
+  })
+
+  .post('/public-finance/revoke', requirePermission('reports.publish'), async (c) => {
+    const row = await revokePublicFinance({
       tenantId: c.get('tenantId')!,
       actorAuthUserId: c.get('user')!.id,
     });

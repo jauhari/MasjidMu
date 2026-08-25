@@ -6,25 +6,12 @@
  * In dev, the first invocation triggers Chromium download (~150 MB) — see
  * `puppeteer install` postinstall. Subsequent runs reuse the cached binary.
  */
-import type { Browser } from 'puppeteer';
-import puppeteer from 'puppeteer';
 import type { ReportResponse } from '../types.js';
 import { renderReportHtml } from './html.js';
-
-let browserPromise: Promise<Browser> | null = null;
-
-async function getBrowser(): Promise<Browser> {
-  if (!browserPromise) {
-    browserPromise = puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-  }
-  return browserPromise;
-}
+import { getSharedBrowser, closeSharedBrowser } from './browser.js';
 
 export async function renderReportPdf<T>(response: ReportResponse<T>): Promise<Buffer> {
-  const browser = await getBrowser();
+  const browser = await getSharedBrowser();
   const page = await browser.newPage();
   try {
     const html = renderReportHtml(response);
@@ -41,10 +28,4 @@ export async function renderReportPdf<T>(response: ReportResponse<T>): Promise<B
 }
 
 /** Shut down the cached browser. Call from tests or graceful shutdown. */
-export async function closeReportPdfBrowser(): Promise<void> {
-  if (browserPromise) {
-    const b = await browserPromise;
-    await b.close();
-    browserPromise = null;
-  }
-}
+export const closeReportPdfBrowser = closeSharedBrowser;

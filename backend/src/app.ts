@@ -17,6 +17,7 @@ import { transactionsRoute } from './modules/accounting/transactions/route.js';
 import { fundsRoute } from './modules/accounting/funds/route.js';
 import { reportsRoute } from './modules/accounting/reports/route.js';
 import { publicPapRoute } from './modules/accounting/public-pap/route.js';
+import { publicFinanceRoute } from './modules/accounting/public-finance/route.js';
 import { mosqueProfileRoute } from './modules/organization/mosque-profile/route.js';
 import { periodsRoute } from './modules/organization/periods/route.js';
 import { positionsRoute } from './modules/organization/positions/route.js';
@@ -106,6 +107,7 @@ app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
 
 // ─── Public API — read-only, anonymous, explicitly projected ──────────────
 app.route('/api/public/pap', publicPapRoute);
+app.route('/api/public/keuangan', publicFinanceRoute);
 
 // ─── App API (v1) — full middleware stack ────────────────────────────────
 app.use('/api/v1/*', sessionResolver());
