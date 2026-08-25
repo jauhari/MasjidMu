@@ -11,7 +11,9 @@ import {
   type PAPReviewRow,
 } from './pap-import.js';
 
-export const PAP_OCR_MODEL = 'claude-opus-4-8';
+// Sonnet-tier is enough for structured table extraction (reading, not
+// reasoning) and costs meaningfully less than Opus per OCR call.
+export const PAP_OCR_MODEL = 'claude-sonnet-5';
 const ANTHROPIC_API_BASE_URL = 'https://api.anthropic.com';
 export const PAP_OCR_MAX_IMAGES = 5;
 export const PAP_OCR_MAX_IMAGE_BYTES = 8 * 1024 * 1024;

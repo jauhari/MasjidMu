@@ -15,7 +15,7 @@ function mockClient(response: unknown) {
 function successfulResponse() {
   return {
     stop_reason: 'end_turn',
-    model: 'claude-opus-4-8',
+    model: 'claude-sonnet-5',
     _requestID: 'req_test',
     content: [{
       type: 'text',
@@ -50,7 +50,7 @@ describe('parsePAPImages', () => {
     expect(result.requestId).toBe('req_test');
     expect(result.source).toMatchObject({ kind: 'ocr', imageCount: 1, fingerprint: result.sourceFingerprint });
     expect(client.messages.create).toHaveBeenCalledWith(expect.objectContaining({
-      model: 'claude-opus-4-8',
+      model: 'claude-sonnet-5',
       thinking: { type: 'adaptive' },
       output_config: { format: expect.objectContaining({ type: 'json_schema' }) },
     }));
@@ -121,7 +121,7 @@ describe('parsePAPImages', () => {
   });
 
   it('checks stop_reason before reading content', async () => {
-    const client = mockClient({ stop_reason: 'max_tokens', model: 'claude-opus-4-8', content: [] });
+    const client = mockClient({ stop_reason: 'max_tokens', model: 'claude-sonnet-5', content: [] });
     await expect(parsePAPImages([
       { bytes: await jpeg(), mediaType: 'image/jpeg' },
     ], { client: client as never })).rejects.toThrow(PAPOCRResponseError);
@@ -142,7 +142,7 @@ describe('parsePAPImages', () => {
 
   it('rejects locally invalid model JSON', async () => {
     const client = mockClient({
-      stop_reason: 'end_turn', model: 'claude-opus-4-8', _requestID: null,
+      stop_reason: 'end_turn', model: 'claude-sonnet-5', _requestID: null,
       content: [{ type: 'text', text: '{"rows":[{"description":1}]}' }],
     });
     await expect(parsePAPImages([
