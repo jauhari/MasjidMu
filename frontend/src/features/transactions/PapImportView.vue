@@ -111,12 +111,19 @@ const allowed = computed(
 );
 const activeFunds = computed(() => funds.value.filter((item) => item.isActive !== false));
 const fundOptions = computed(() => activeFunds.value.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}` })));
+// Lembaga non-LAZ (masjid/pesantren/yayasan) tidak punya dana PSAK 109 sama
+// sekali — dropdown Dana akan selalu kosong untuk mereka. Mewajibkan fundId
+// di sini akan mengunci tombol impor permanen tanpa penjelasan.
+const fundRequired = computed(() => activeFunds.value.length > 0);
 const hasAccountTypes = computed(() => accounts.value.some((item) => Boolean(item.accountType)));
 const cashAccounts = computed(() => filterAccounts('asset'));
 const incomeAccounts = computed(() => filterAccounts('income'));
 const expenseAccounts = computed(() => filterAccounts('expense'));
 const sourceReady = computed(() => sourceKind.value === 'images' ? images.value.length > 0 : excelFile.value !== null);
-const mappingsReady = computed(() => Object.values(mapping).every(Boolean));
+const mappingsReady = computed(() =>
+  Boolean(mapping.cashAccountId && mapping.incomeAccountId && mapping.defaultExpenseAccountId)
+  && (!fundRequired.value || Boolean(mapping.fundId)),
+);
 
 function rowValid(row: EditableRow): boolean {
   return Boolean(row.date && row.direction && row.description.trim() && Number(row.amount) > 0);
@@ -323,7 +330,7 @@ async function commit(): Promise<void> {
       reason: reason.value.trim(),
       sourceFingerprint: sourceFingerprint.value,
       sourceType: sourceKind.value === 'images' ? 'ocr' : 'excel',
-      fundId: mapping.fundId,
+      fundId: mapping.fundId || null,
       cashAccountId: mapping.cashAccountId,
       incomeAccountId: mapping.incomeAccountId,
       expenseAccountId: mapping.defaultExpenseAccountId,
@@ -445,7 +452,18 @@ onBeforeUnmount(() => {
           <div><h2 class="font-semibold">2. Tentukan dana & akun</h2><p class="mt-1 text-sm text-muted-foreground">Satu file memakai satu dana. Akun pengeluaran dapat diubah per baris nanti.</p></div>
           <div v-if="loadingMappings" class="flex items-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 class="size-4 animate-spin" /> Memuat dana dan akun…</div>
           <template v-else>
-            <FormField label="Dana" required><AppSelect v-model="mapping.fundId" :options="fundOptions" :disabled="parsing" placeholder="Pilih dana untuk seluruh file" /></FormField>
+            <FormField
+              label="Dana"
+              :required="fundRequired"
+              :hint="fundRequired ? null : 'Lembaga ini tidak memakai dana (fund) — bagian ini dilewati.'"
+            >
+              <AppSelect
+                v-model="mapping.fundId"
+                :options="fundOptions"
+                :disabled="parsing || !fundRequired"
+                :placeholder="fundRequired ? 'Pilih dana untuk seluruh file' : 'Tidak berlaku'"
+              />
+            </FormField>
             <FormField label="Akun kas / bank" required><AccountSelect v-model="mapping.cashAccountId" :accounts="cashAccounts" :disabled="parsing" :filter-type="hasAccountTypes ? 'asset' : undefined" placeholder="Pilih akun aset kas" /></FormField>
             <FormField label="Akun pemasukan" required><AccountSelect v-model="mapping.incomeAccountId" :accounts="incomeAccounts" :disabled="parsing" :filter-type="hasAccountTypes ? 'income' : undefined" placeholder="Pilih akun pendapatan" /></FormField>
             <FormField label="Akun pengeluaran default" required><AccountSelect v-model="mapping.defaultExpenseAccountId" :accounts="expenseAccounts" :disabled="parsing" :filter-type="hasAccountTypes ? 'expense' : undefined" placeholder="Pilih akun beban" /></FormField>
