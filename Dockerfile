@@ -6,6 +6,7 @@ FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY backend/package.json ./backend/
 COPY shared/package.json ./shared/
+COPY frontend/package.json ./frontend/
 RUN pnpm install --frozen-lockfile
 
 FROM base AS build
