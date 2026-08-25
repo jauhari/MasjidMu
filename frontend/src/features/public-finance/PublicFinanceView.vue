@@ -18,14 +18,27 @@ interface CategoryAmount {
   amount: string;
 }
 
+interface MonthlyAmount {
+  month: string;
+  income: string;
+  expense: string;
+}
+
 interface PublicFinanceReport {
   reportType: 'finance-transparency';
   mosque: { name: string; shortName: string | null; logoUrl: string | null; bannerUrl: string | null };
   period: { startDate: string; endDate: string; label: string };
   publication: { publishedAt: string };
   generatedAt: string;
-  data: { cashPosition: string; topIncome: CategoryAmount[]; topExpense: CategoryAmount[] };
+  data: {
+    cashPosition: string;
+    topIncome: CategoryAmount[];
+    topExpense: CategoryAmount[];
+    monthlyTrend: MonthlyAmount[];
+  };
 }
+
+const MONTH_ABBR_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
 const route = useRoute();
 const now = new Date();
@@ -92,6 +105,35 @@ function buildPublicUrl(format?: 'image'): string {
 }
 
 const imageUrl = computed(() => buildPublicUrl('image'));
+
+/** Setiap tahun yang ada datanya diisi penuh 12 bulan (Jan-Des) -- bulan
+ * tanpa transaksi tetap tampil sebagai batang kosong, supaya skala &
+ * jarak antar tahun konsisten dan bisa dibandingkan langsung. */
+const trendByYear = computed(() => {
+  const trend = report.value?.data.monthlyTrend ?? [];
+  if (!trend.length) return { years: [], maxValue: 0 };
+  const byMonth = new Map(trend.map((m) => [m.month, m]));
+  const years = [...new Set(trend.map((m) => Number(m.month.slice(0, 4))))].sort((a, b) => a - b);
+  let maxValue = 0;
+  for (const m of trend) {
+    maxValue = Math.max(maxValue, Number(m.income), Number(m.expense));
+  }
+  const result = years.map((y) => ({
+    year: y,
+    months: Array.from({ length: 12 }, (_, i) => {
+      const key = `${y}-${String(i + 1).padStart(2, '0')}`;
+      const found = byMonth.get(key);
+      return { month: key, label: MONTH_ABBR_ID[i], income: found?.income ?? '0', expense: found?.expense ?? '0' };
+    }),
+  }));
+  return { years: result, maxValue: maxValue || 1 };
+});
+
+function barHeightPct(value: string, maxValue: number): number {
+  const v = Number(value);
+  if (v <= 0) return 0;
+  return Math.max(2, Math.round((v / maxValue) * 100));
+}
 
 async function load(): Promise<void> {
   if (periodMode.value === 'custom' && (!dateFrom.value || !dateTo.value)) return;
@@ -226,6 +268,37 @@ onMounted(() => { void load(); });
             </CardContent>
           </Card>
         </div>
+
+        <Card v-if="trendByYear.years.length">
+          <CardContent class="space-y-5 p-4 sm:p-5">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h2 class="text-sm font-bold text-foreground">Tren Bulanan</h2>
+              <div class="flex items-center gap-3 text-[11px] text-muted-foreground">
+                <span class="flex items-center gap-1.5"><span class="size-2 rounded-sm bg-emerald-600"></span> Pemasukan</span>
+                <span class="flex items-center gap-1.5"><span class="size-2 rounded-sm bg-amber-600"></span> Pengeluaran</span>
+              </div>
+            </div>
+
+            <div v-for="y in trendByYear.years" :key="y.year">
+              <p class="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">{{ y.year }}</p>
+              <div class="flex items-end gap-1.5 overflow-x-auto pb-1 sm:gap-2.5">
+                <div v-for="m in y.months" :key="m.month" class="flex min-w-[28px] flex-1 flex-col items-center">
+                  <div class="flex h-24 w-full items-end justify-center gap-[3px]" :title="`${m.label} ${y.year}`">
+                    <div
+                      class="w-2 rounded-t-sm bg-emerald-500 transition-all sm:w-2.5"
+                      :style="{ height: barHeightPct(m.income, trendByYear.maxValue) + '%' }"
+                    ></div>
+                    <div
+                      class="w-2 rounded-t-sm bg-amber-500 transition-all sm:w-2.5"
+                      :style="{ height: barHeightPct(m.expense, trendByYear.maxValue) + '%' }"
+                    ></div>
+                  </div>
+                  <span class="mt-1.5 text-[10px] text-muted-foreground">{{ m.label }}</span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <p class="rounded-2xl border bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground">
           Detail internal seperti nomor bukti, nama akun, dan catatan audit sengaja tidak dipublikasikan untuk menjaga privasi. Angka berasal dari transaksi yang sudah diposting.

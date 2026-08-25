@@ -37,6 +37,34 @@ function categoryBlock(
   return `<p class="cat-name">${escapeHtml(cat.categoryName)}</p><p class="cat-amount">${formatRupiah(cat.amount)}</p>`;
 }
 
+const MONTH_ABBR_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+const TREND_MONTHS = 6;
+
+function trendChartHtml(trend: PublicFinanceReportResponse['data']['monthlyTrend']): string {
+  const recent = trend.slice(-TREND_MONTHS);
+  if (recent.length < 2) return '';
+  const maxValue = Math.max(1, ...recent.map((m) => Math.max(Number(m.income), Number(m.expense))));
+  const cols = recent
+    .map((m) => {
+      const [, mm] = m.month.split('-');
+      const label = MONTH_ABBR_ID[Number(mm) - 1];
+      const incomeH = Math.max(2, Math.round((Number(m.income) / maxValue) * 100));
+      const expenseH = Math.max(2, Math.round((Number(m.expense) / maxValue) * 100));
+      return `<div class="trend-col">
+        <div class="trend-bars">
+          <div class="trend-bar income" style="height:${incomeH}%"></div>
+          <div class="trend-bar expense" style="height:${expenseH}%"></div>
+        </div>
+        <div class="trend-label">${escapeHtml(label)}</div>
+      </div>`;
+    })
+    .join('');
+  return `<div class="card">
+    <div class="stat-label" style="margin-bottom: 22px;">Tren ${recent.length} Bulan Terakhir</div>
+    <div class="trend-chart">${cols}</div>
+  </div>`;
+}
+
 export function renderPublicFinanceHtml(report: PublicFinanceReportResponse, publicUrl: string): string {
   const hasIncome = report.data.topIncome.length > 0;
   const hasExpense = report.data.topExpense.length > 0;
@@ -97,6 +125,13 @@ export function renderPublicFinanceHtml(report: PublicFinanceReportResponse, pub
   .income .cat-amount { color: #0f9d6e; }
   .expense .cat-amount { color: #c1591f; }
   .cat-empty { font-size: 22px; font-style: italic; color: #93a29a; }
+  .trend-chart { display: flex; align-items: flex-end; gap: 20px; height: 200px; }
+  .trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
+  .trend-bars { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 8px; }
+  .trend-bar { width: 22px; border-radius: 6px 6px 0 0; }
+  .trend-bar.income { background: #34b980; }
+  .trend-bar.expense { background: #e08a4a; }
+  .trend-label { margin-top: 14px; font-size: 18px; font-weight: 600; color: #5b6b62; }
   .footer {
     margin-top: 40px; padding: 32px 64px 44px; text-align: center;
     border-top: 1px solid #e6ede9;
@@ -141,6 +176,8 @@ export function renderPublicFinanceHtml(report: PublicFinanceReportResponse, pub
           ${categoryBlock(report.data.topExpense[0], hasExpense ? '' : 'Belum ada transaksi tercatat')}
         </div>
       </div>
+
+      ${trendChartHtml(report.data.monthlyTrend)}
     </div>
 
     <div class="footer">
