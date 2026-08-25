@@ -110,19 +110,23 @@ function buildPublicUrl(format?: 'image'): string {
 
 const imageUrl = computed(() => buildPublicUrl('image'));
 
-/** Tabel per tahun, terbaru dulu -- hanya bulan yang benar-benar ada
- * transaksinya (tabel, beda dari chart, tidak butuh bulan kosong untuk
- * jaga skala), plus baris Total per tahun. */
+/** Tabel per tahun, terbaru dulu -- semua 12 bulan ditampilkan (bulan
+ * tanpa transaksi = baris nol, bukan disembunyikan) supaya tidak ada
+ * kesan data "hilang", plus baris Total per tahun. */
 const trendByYear = computed(() => {
   const trend = report.value?.data.monthlyTrend ?? [];
   if (!trend.length) return [];
+  const byMonth = new Map(trend.map((m) => [m.month, m]));
+  const years = [...new Set(trend.map((m) => Number(m.month.slice(0, 4))))];
   const byYear = new Map<number, { label: string; income: string; expense: string; net: string }[]>();
-  for (const m of trend) {
-    const y = Number(m.month.slice(0, 4));
-    const mIdx = Number(m.month.slice(5, 7)) - 1;
-    const net = (Number(m.income) - Number(m.expense)).toFixed(2);
-    const rows = byYear.get(y) ?? [];
-    rows.push({ label: MONTH_NAME_ID[mIdx]!, income: m.income, expense: m.expense, net });
+  for (const y of years) {
+    const rows = Array.from({ length: 12 }, (_, i) => {
+      const key = `${y}-${String(i + 1).padStart(2, '0')}`;
+      const found = byMonth.get(key);
+      const income = found?.income ?? '0';
+      const expense = found?.expense ?? '0';
+      return { label: MONTH_NAME_ID[i]!, income, expense, net: (Number(income) - Number(expense)).toFixed(2) };
+    });
     byYear.set(y, rows);
   }
   return [...byYear.entries()]

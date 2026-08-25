@@ -46,10 +46,25 @@ function formatSigned(amount: string): string {
   return `${sign}Rp${Math.abs(n).toLocaleString('id-ID')}`;
 }
 
-/** Last N months that actually have a transaction -- a table doesn't need
- * zero rows just to keep a visual scale honest the way a bar chart does. */
+/** Trailing N calendar months ending at the latest month with any data --
+ * quiet months are printed as a zero row (not skipped), so consecutive
+ * labels are never missing a month with no visible gap marker. */
+function trailingMonths(trend: PublicFinanceReportResponse['data']['monthlyTrend'], n: number) {
+  if (!trend.length) return [];
+  const byMonth = new Map(trend.map((m) => [m.month, m]));
+  const [endYear, endMonth] = trend[trend.length - 1]!.month.split('-').map(Number) as [number, number];
+  const result: { month: string; income: string; expense: string }[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(endYear!, endMonth! - 1 - i, 1));
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const found = byMonth.get(key);
+    result.push({ month: key, income: found?.income ?? '0', expense: found?.expense ?? '0' });
+  }
+  return result;
+}
+
 function trendTableHtml(trend: PublicFinanceReportResponse['data']['monthlyTrend']): string {
-  const recent = trend.slice(-TREND_MONTHS);
+  const recent = trailingMonths(trend, TREND_MONTHS);
   if (recent.length < 2) return '';
   const rows = recent
     .map((m, i) => {
