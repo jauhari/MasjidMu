@@ -40,45 +40,42 @@ function categoryBlock(
 const MONTH_ABBR_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const TREND_MONTHS = 6;
 
-/** Trailing N calendar months ending at the latest month with any data --
- * quiet months are filled with zero (not skipped), so the chart always
- * reads as "the last N months" rather than silently compressing gaps. */
-function trailingMonths(trend: PublicFinanceReportResponse['data']['monthlyTrend'], n: number) {
-  if (!trend.length) return [];
-  const byMonth = new Map(trend.map((m) => [m.month, m]));
-  const [endYear, endMonth] = trend[trend.length - 1]!.month.split('-').map(Number) as [number, number];
-  const result: { month: string; income: string; expense: string }[] = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(Date.UTC(endYear!, endMonth! - 1 - i, 1));
-    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-    const found = byMonth.get(key);
-    result.push({ month: key, income: found?.income ?? '0', expense: found?.expense ?? '0' });
-  }
-  return result;
+function formatSigned(amount: string): string {
+  const n = Math.round(Number(amount));
+  const sign = n > 0 ? '+' : n < 0 ? '−' : '';
+  return `${sign}Rp${Math.abs(n).toLocaleString('id-ID')}`;
 }
 
-function trendChartHtml(trend: PublicFinanceReportResponse['data']['monthlyTrend']): string {
-  const recent = trailingMonths(trend, TREND_MONTHS);
+/** Last N months that actually have a transaction -- a table doesn't need
+ * zero rows just to keep a visual scale honest the way a bar chart does. */
+function trendTableHtml(trend: PublicFinanceReportResponse['data']['monthlyTrend']): string {
+  const recent = trend.slice(-TREND_MONTHS);
   if (recent.length < 2) return '';
-  const maxValue = Math.max(1, ...recent.map((m) => Math.max(Number(m.income), Number(m.expense))));
-  const cols = recent
-    .map((m) => {
+  const rows = recent
+    .map((m, i) => {
       const [, mm] = m.month.split('-');
       const label = MONTH_ABBR_ID[Number(mm) - 1];
-      const incomeH = Number(m.income) > 0 ? Math.max(2, Math.round((Number(m.income) / maxValue) * 100)) : 0;
-      const expenseH = Number(m.expense) > 0 ? Math.max(2, Math.round((Number(m.expense) / maxValue) * 100)) : 0;
-      return `<div class="trend-col">
-        <div class="trend-bars">
-          <div class="trend-bar income" style="height:${incomeH}%"></div>
-          <div class="trend-bar expense" style="height:${expenseH}%"></div>
-        </div>
-        <div class="trend-label">${escapeHtml(label)}</div>
-      </div>`;
+      const net = (Number(m.income) - Number(m.expense)).toFixed(2);
+      const shade = i % 2 === 1 ? 'background:#f7faf8;' : '';
+      return `<tr style="${shade}">
+        <td class="tc-month">${escapeHtml(label!)}</td>
+        <td class="tc-num tc-income">${formatRupiah(m.income)}</td>
+        <td class="tc-num tc-expense">${formatRupiah(m.expense)}</td>
+        <td class="tc-num tc-net">${formatSigned(net)}</td>
+      </tr>`;
     })
     .join('');
   return `<div class="card">
-    <div class="stat-label" style="margin-bottom: 22px;">Tren ${recent.length} Bulan Terakhir</div>
-    <div class="trend-chart">${cols}</div>
+    <div class="stat-label" style="margin-bottom: 18px;">Rincian ${recent.length} Bulan Terakhir</div>
+    <table class="trend-table">
+      <thead><tr>
+        <th class="tc-month">Bulan</th>
+        <th class="tc-num">Pemasukan</th>
+        <th class="tc-num">Pengeluaran</th>
+        <th class="tc-num">Selisih</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
   </div>`;
 }
 
@@ -142,13 +139,18 @@ export function renderPublicFinanceHtml(report: PublicFinanceReportResponse, pub
   .income .cat-amount { color: #0f9d6e; }
   .expense .cat-amount { color: #c1591f; }
   .cat-empty { font-size: 22px; font-style: italic; color: #93a29a; }
-  .trend-chart { display: flex; align-items: flex-end; gap: 20px; height: 200px; }
-  .trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
-  .trend-bars { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 8px; }
-  .trend-bar { width: 22px; border-radius: 6px 6px 0 0; }
-  .trend-bar.income { background: #34b980; }
-  .trend-bar.expense { background: #e08a4a; }
-  .trend-label { margin-top: 14px; font-size: 18px; font-weight: 600; color: #5b6b62; }
+  .trend-table { width: 100%; border-collapse: collapse; }
+  .trend-table th {
+    text-align: right; font-size: 16px; font-weight: 700; color: #5b6b62;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 0 4px 10px; border-bottom: 2px solid #16241c;
+  }
+  .trend-table th.tc-month, .trend-table td.tc-month { text-align: left; }
+  .trend-table td { padding: 12px 4px; font-size: 22px; font-weight: 600; border-bottom: 1px solid #e6ede9; }
+  .trend-table td.tc-num { text-align: right; font-variant-numeric: tabular-nums; }
+  .trend-table td.tc-income { color: #0f9d6e; }
+  .trend-table td.tc-expense { color: #c1591f; }
+  .trend-table td.tc-net { font-weight: 800; }
   .footer {
     margin-top: 40px; padding: 32px 64px 44px; text-align: center;
     border-top: 1px solid #e6ede9;
@@ -194,7 +196,7 @@ export function renderPublicFinanceHtml(report: PublicFinanceReportResponse, pub
         </div>
       </div>
 
-      ${trendChartHtml(report.data.monthlyTrend)}
+      ${trendTableHtml(report.data.monthlyTrend)}
     </div>
 
     <div class="footer">

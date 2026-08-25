@@ -5,6 +5,7 @@ import { Download, ImageDown, ShieldCheck, TrendingDown, TrendingUp, Wallet } fr
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table } from '@/components/ui/table';
 import AppSelect from '@/shared/ui/AppSelect.vue';
 import Button from '@/shared/ui/Button.vue';
 import DatePicker from '@/shared/ui/DatePicker.vue';
@@ -38,7 +39,10 @@ interface PublicFinanceReport {
   };
 }
 
-const MONTH_ABBR_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+const MONTH_NAME_ID = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+];
 
 const route = useRoute();
 const now = new Date();
@@ -106,34 +110,35 @@ function buildPublicUrl(format?: 'image'): string {
 
 const imageUrl = computed(() => buildPublicUrl('image'));
 
-/** Setiap tahun yang ada datanya diisi penuh 12 bulan (Jan-Des) -- bulan
- * tanpa transaksi tetap tampil sebagai batang kosong, supaya skala &
- * jarak antar tahun konsisten dan bisa dibandingkan langsung. */
+/** Tabel per tahun, terbaru dulu -- hanya bulan yang benar-benar ada
+ * transaksinya (tabel, beda dari chart, tidak butuh bulan kosong untuk
+ * jaga skala), plus baris Total per tahun. */
 const trendByYear = computed(() => {
   const trend = report.value?.data.monthlyTrend ?? [];
-  if (!trend.length) return { years: [], maxValue: 0 };
-  const byMonth = new Map(trend.map((m) => [m.month, m]));
-  const years = [...new Set(trend.map((m) => Number(m.month.slice(0, 4))))].sort((a, b) => a - b);
-  let maxValue = 0;
+  if (!trend.length) return [];
+  const byYear = new Map<number, { label: string; income: string; expense: string; net: string }[]>();
   for (const m of trend) {
-    maxValue = Math.max(maxValue, Number(m.income), Number(m.expense));
+    const y = Number(m.month.slice(0, 4));
+    const mIdx = Number(m.month.slice(5, 7)) - 1;
+    const net = (Number(m.income) - Number(m.expense)).toFixed(2);
+    const rows = byYear.get(y) ?? [];
+    rows.push({ label: MONTH_NAME_ID[mIdx]!, income: m.income, expense: m.expense, net });
+    byYear.set(y, rows);
   }
-  const result = years.map((y) => ({
-    year: y,
-    months: Array.from({ length: 12 }, (_, i) => {
-      const key = `${y}-${String(i + 1).padStart(2, '0')}`;
-      const found = byMonth.get(key);
-      return { month: key, label: MONTH_ABBR_ID[i], income: found?.income ?? '0', expense: found?.expense ?? '0' };
-    }),
-  }));
-  return { years: result, maxValue: maxValue || 1 };
+  return [...byYear.entries()]
+    .sort(([a], [b]) => b - a)
+    .map(([year, months]) => {
+      const totalIncome = months.reduce((s, m) => s + Number(m.income), 0);
+      const totalExpense = months.reduce((s, m) => s + Number(m.expense), 0);
+      return {
+        year,
+        months,
+        totalIncome: totalIncome.toFixed(2),
+        totalExpense: totalExpense.toFixed(2),
+        totalNet: (totalIncome - totalExpense).toFixed(2),
+      };
+    });
 });
-
-function barHeightPct(value: string, maxValue: number): number {
-  const v = Number(value);
-  if (v <= 0) return 0;
-  return Math.max(2, Math.round((v / maxValue) * 100));
-}
 
 async function load(): Promise<void> {
   if (periodMode.value === 'custom' && (!dateFrom.value || !dateTo.value)) return;
@@ -269,33 +274,36 @@ onMounted(() => { void load(); });
           </Card>
         </div>
 
-        <Card v-if="trendByYear.years.length">
-          <CardContent class="space-y-5 p-4 sm:p-5">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <h2 class="text-sm font-bold text-foreground">Tren Bulanan</h2>
-              <div class="flex items-center gap-3 text-[11px] text-muted-foreground">
-                <span class="flex items-center gap-1.5"><span class="size-2 rounded-sm bg-emerald-600"></span> Pemasukan</span>
-                <span class="flex items-center gap-1.5"><span class="size-2 rounded-sm bg-amber-600"></span> Pengeluaran</span>
-              </div>
-            </div>
+        <Card v-if="trendByYear.length">
+          <CardContent class="space-y-6 p-4 sm:p-5">
+            <h2 class="text-sm font-bold text-foreground">Rincian Bulanan</h2>
 
-            <div v-for="y in trendByYear.years" :key="y.year">
-              <p class="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">{{ y.year }}</p>
-              <div class="flex items-end gap-1.5 overflow-x-auto pb-1 sm:gap-2.5">
-                <div v-for="m in y.months" :key="m.month" class="flex min-w-[28px] flex-1 flex-col items-center">
-                  <div class="flex h-24 w-full items-end justify-center gap-[3px]" :title="`${m.label} ${y.year}`">
-                    <div
-                      class="w-2 rounded-t-sm bg-emerald-500 transition-all sm:w-2.5"
-                      :style="{ height: barHeightPct(m.income, trendByYear.maxValue) + '%' }"
-                    ></div>
-                    <div
-                      class="w-2 rounded-t-sm bg-amber-500 transition-all sm:w-2.5"
-                      :style="{ height: barHeightPct(m.expense, trendByYear.maxValue) + '%' }"
-                    ></div>
-                  </div>
-                  <span class="mt-1.5 text-[10px] text-muted-foreground">{{ m.label }}</span>
-                </div>
-              </div>
+            <div v-for="y in trendByYear" :key="y.year" class="overflow-x-auto">
+              <p class="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">Tahun {{ y.year }}</p>
+              <Table>
+                <thead>
+                  <tr class="border-b border-border bg-muted/50">
+                    <th class="rounded-l-lg px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Bulan</th>
+                    <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Pemasukan</th>
+                    <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Pengeluaran</th>
+                    <th class="rounded-r-lg px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Selisih</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(m, i) in y.months" :key="m.label" class="border-b border-border/60" :class="i % 2 === 1 ? 'bg-muted/20' : ''">
+                    <td class="px-3 py-2 text-sm text-foreground">{{ m.label }}</td>
+                    <td class="px-3 py-2 text-right text-sm"><MoneyText :value="m.income" tone="income" /></td>
+                    <td class="px-3 py-2 text-right text-sm"><MoneyText :value="m.expense" tone="expense" /></td>
+                    <td class="px-3 py-2 text-right text-sm font-medium"><MoneyText :value="m.net" show-sign /></td>
+                  </tr>
+                  <tr class="bg-primary/5 font-bold">
+                    <td class="px-3 py-2.5 text-sm">Total {{ y.year }}</td>
+                    <td class="px-3 py-2.5 text-right text-sm"><MoneyText :value="y.totalIncome" tone="income" /></td>
+                    <td class="px-3 py-2.5 text-right text-sm"><MoneyText :value="y.totalExpense" tone="expense" /></td>
+                    <td class="px-3 py-2.5 text-right text-sm"><MoneyText :value="y.totalNet" show-sign /></td>
+                  </tr>
+                </tbody>
+              </Table>
             </div>
           </CardContent>
         </Card>
