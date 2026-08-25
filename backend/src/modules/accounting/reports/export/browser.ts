@@ -28,16 +28,18 @@ export async function closeSharedBrowser(): Promise<void> {
   }
 }
 
-export async function renderPngFromHtml(
-  html: string,
-  viewport: { width: number; height: number },
-): Promise<Buffer> {
+/**
+ * Screenshots `html` at a fixed width with height driven by actual content
+ * (`fullPage: true`) rather than a guessed fixed height -- avoids both
+ * clipped content and empty trailing space.
+ */
+export async function renderPngFromHtml(html: string, width: number): Promise<Buffer> {
   const browser = await getSharedBrowser();
   const page = await browser.newPage();
   try {
-    await page.setViewport(viewport);
+    await page.setViewport({ width, height: 800 });
     await page.setContent(html, { waitUntil: 'load' });
-    const png = await page.screenshot({ type: 'png' });
+    const png = await page.screenshot({ type: 'png', fullPage: true });
     return Buffer.from(png);
   } finally {
     await page.close();

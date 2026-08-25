@@ -33,7 +33,7 @@ const loading = ref(false);
 const unavailable = ref(false);
 const error = ref<string | null>(null);
 const report = ref<PublicFinanceReport | null>(null);
-const periodMode = ref<'monthly' | 'custom'>('monthly');
+const periodMode = ref<'monthly' | 'custom' | 'all'>('monthly');
 const month = ref(now.getMonth() + 1);
 const year = ref(now.getFullYear());
 const dateFrom = ref<string | null>(null);
@@ -42,6 +42,7 @@ const dateTo = ref<string | null>(null);
 const periodModeOptions = [
   { value: 'monthly', label: 'Per Bulan' },
   { value: 'custom', label: 'Custom' },
+  { value: 'all', label: 'Semua Data' },
 ];
 
 const monthOptions = computed(() =>
@@ -75,7 +76,9 @@ function tenantSlugForDev(): string | null {
 
 function buildPublicUrl(format?: 'image'): string {
   const params = new URLSearchParams();
-  if (periodMode.value === 'custom') {
+  if (periodMode.value === 'all') {
+    params.set('period', 'all');
+  } else if (periodMode.value === 'custom') {
     if (dateFrom.value) params.set('startDate', dateFrom.value);
     if (dateTo.value) params.set('endDate', dateTo.value);
   } else {
@@ -152,7 +155,7 @@ onMounted(() => { void load(); });
             <div class="w-full max-w-[150px]"><AppSelect v-model="monthStr" :options="monthOptions" /></div>
             <div class="w-full max-w-[100px]"><AppSelect v-model="yearStr" :options="yearOptions" /></div>
           </template>
-          <template v-else>
+          <template v-else-if="periodMode === 'custom'">
             <DatePicker v-model="dateFrom" placeholder="Dari tgl" />
             <span class="text-xs text-muted-foreground">s/d</span>
             <DatePicker v-model="dateTo" placeholder="Sampai tgl" />

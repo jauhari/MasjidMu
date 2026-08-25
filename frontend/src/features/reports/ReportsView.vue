@@ -96,6 +96,14 @@ const publicFinanceSaving = ref(false);
 const publicFinanceError = ref<string | null>(null);
 const publishFinanceConfirmOpen = ref(false);
 const revokeFinanceConfirmOpen = ref(false);
+/** Periode "Unduh Gambar" -- independen dari picker laporan tabular di atas,
+ * karena "Semua Data" cuma masuk akal untuk ringkasan ini (bukan mis. Jurnal
+ * Umum, yang bisa jadi sangat besar kalau direntang sejak awal). */
+const financePeriodMode = ref<'monthly' | 'custom' | 'all'>('monthly');
+const financeMonth = ref(now.getMonth() + 1);
+const financeYear = ref(now.getFullYear());
+const financeDateFrom = ref<string | null>(null);
+const financeDateTo = ref<string | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const data = ref<any>(null);
@@ -265,6 +273,22 @@ const yearStr = computed({
   set: (v: string) => { year.value = Number(v); },
 });
 
+const financePeriodModeOptions = [
+  { value: 'monthly', label: 'Per Bulan' },
+  { value: 'custom', label: 'Custom' },
+  { value: 'all', label: 'Semua Data' },
+];
+
+const financeMonthStr = computed({
+  get: () => String(financeMonth.value),
+  set: (v: string) => { financeMonth.value = Number(v); },
+});
+
+const financeYearStr = computed({
+  get: () => String(financeYear.value),
+  set: (v: string) => { financeYear.value = Number(v); },
+});
+
 const canPublishReports = computed(() => auth.hasPermission('reports.publish'));
 
 const publicPapUrl = computed(() => {
@@ -379,12 +403,14 @@ async function copyPublicFinanceUrl(): Promise<void> {
 function publicFinanceImageUrl(): string {
   const tenant = getTenantSlug();
   const params = new URLSearchParams({ format: 'image' });
-  if (periodMode.value === 'custom') {
-    if (dateFrom.value) params.set('startDate', dateFrom.value);
-    if (dateTo.value) params.set('endDate', dateTo.value);
+  if (financePeriodMode.value === 'all') {
+    params.set('period', 'all');
+  } else if (financePeriodMode.value === 'custom') {
+    if (financeDateFrom.value) params.set('startDate', financeDateFrom.value);
+    if (financeDateTo.value) params.set('endDate', financeDateTo.value);
   } else {
-    params.set('month', String(month.value));
-    params.set('year', String(year.value));
+    params.set('month', String(financeMonth.value));
+    params.set('year', String(financeYear.value));
   }
   if (tenant) params.set('tenant_slug', tenant);
   return `/api/public/keuangan?${params.toString()}`;
@@ -596,6 +622,26 @@ watch(
         <Alert v-if="publicFinanceError" variant="destructive">
           <AlertDescription>{{ publicFinanceError }}</AlertDescription>
         </Alert>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs font-medium text-muted-foreground">Periode gambar:</span>
+          <div class="w-full max-w-[130px]">
+            <AppSelect v-model="financePeriodMode" :options="financePeriodModeOptions" />
+          </div>
+          <template v-if="financePeriodMode === 'monthly'">
+            <div class="w-full max-w-[140px]">
+              <AppSelect v-model="financeMonthStr" :options="monthOptions" />
+            </div>
+            <div class="w-full max-w-[100px]">
+              <AppSelect v-model="financeYearStr" :options="yearOptions" />
+            </div>
+          </template>
+          <template v-else-if="financePeriodMode === 'custom'">
+            <DatePicker v-model="financeDateFrom" placeholder="Dari tgl" />
+            <span class="text-xs text-muted-foreground">s/d</span>
+            <DatePicker v-model="financeDateTo" placeholder="Sampai tgl" />
+          </template>
+        </div>
 
         <div class="flex flex-wrap gap-2">
           <Button
