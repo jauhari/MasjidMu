@@ -53,6 +53,16 @@ Karena itu, verifikasi dilakukan lewat kombinasi jalur lain (semua terhadap data
 
 ---
 
+## 4a. Iterasi Lanjutan (sama hari, setelah user coba fitur di produksi)
+
+User kasih feedback langsung setelah coba kartu/gambar di §1: desain gambar "nggak ada pro level", data kategori kosong, dan minta opsi periode "semua data" vs "bulan tertentu". Ditindaklanjuti (commit `66d2065`):
+
+- **Desain gambar dirombak** — header band gradient hijau + logo/inisial, badge ikon (wallet/trending, inline SVG supaya aman di Alpine tanpa dependensi font), grid 2 kolom pemasukan/pengeluaran, empty-state dibedakan bobotnya (italic abu-abu, bukan bold sama seperti data asli), footer pill link + watermark. `renderPngFromHtml` sekarang screenshot `fullPage: true` (tinggi ikut konten) — sebelumnya tinggi digambar fix 1350px dan menyisakan ruang kosong besar.
+- **Opsi periode "Semua Data"** ditambahkan (`?period=all`, floor 2000-01-01) — di halaman publik DAN di kartu admin (kartu dapat period picker sendiri, terpisah dari picker laporan tabular di atasnya, supaya tidak memengaruhi laporan lain seperti Jurnal Umum).
+- **Data kategori PCA Ponjong ternyata jauh lebih tidak lengkap dari dugaan awal**: bukan cuma 4 transaksi Agustus — total **36 dari 114 transaksi posted tidak berkategori** (import historis 75-baris ternyata tidak sepenuhnya dikategorikan meski dokumentasi lama bilang begitu). Semua diperbaiki via SQL mekanis (cocokkan ke akun yang sudah diposting: kredit 4100→PCA-INFAQ, debit 5200→PCA-BEBAN-PROGRAM — bukan tebak dari deskripsi). **1 baris sengaja dibiarkan tanpa kategori** (baris #1 "Dana dari Bendahara Lama", per desain awal bukan pendapatan operasional). Hasil akhir: 113/114 terkategori. List Transaksi di frontend butuh **refresh manual (F5)** untuk lihat perubahan ini karena data diubah langsung di DB, bukan lewat API (state Vue di browser tidak otomatis tahu).
+
+---
+
 ## 4. Commit Sesi Ini (`main`, sudah dipush & live)
 
 - `1c18292` `docs: add design spec for Transparansi Keuangan Umum`
@@ -63,6 +73,8 @@ Karena itu, verifikasi dilakukan lewat kombinasi jalur lain (semua terhadap data
 - `db39528` `docs(render): document missing PUBLIC_TENANT_PROXY_SECRET env var`
 - `99e2a6b` `chore: trigger Cloudflare Pages redeploy` (commit kosong, tidak efektif — lihat §1, dipicu ulang via `workflow_dispatch`)
 - `a3695a2` `fix(docker): install Alpine-compatible Chromium for Puppeteer`
+- `8c5d682` `docs: record production fixes (tenant proxy secret, Puppeteer/Alpine)`
+- `66d2065` `feat(reports): redesign finance share card + add "Semua Data" period`
 
 Push langsung ke `main` tanpa staging, atas instruksi eksplisit user sesi ini ("langsung push aja selalu biar bisa test") — lihat memory `user-vibe-coder`.
 
