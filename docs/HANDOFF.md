@@ -76,6 +76,18 @@ User tegas: kartu masih terasa "seperti laporan anak TK", minta laporan sungguha
 
 ---
 
+## 4c. Iterasi Lanjutan #3 — chart diganti tabel
+
+User kirim contoh Laporan Posisi Keuangan formal (format PSAK, tabel bersih dengan angka pasti) dan bilang chart batang §4b justru bikin "anggota tambah PUSING" — untuk gambar statis, batang tanpa label angka memang lebih sulit dibaca daripada tabel langsung. Ditindaklanjuti (commit `9b14880`, `b3679a9`) — **bar chart dibuang total**, diganti tabel:
+
+- Halaman publik: tabel per tahun (`<Table>` component yang sama dipakai `ReportsView.vue`, bukan komponen baru) — Bulan/Pemasukan/Pengeluaran/Selisih, 12 baris penuh per tahun + baris Total per tahun.
+- Gambar share: tabel serupa, 6 bulan terakhir, header bergaris tebal & angka rata kanan (meniru gaya statement resmi).
+- Konsistensi: kedua tabel isi bulan kosong dengan baris nol (bukan di-skip) — lanjutan langsung dari fix gap-fill di §4b, sekarang diterapkan ke tabel juga.
+
+**Verifikasi**: sempat salah baca LAGI — tab browser yang dipakai berulang kali sepanjang sesi ini ("seed") masih render versi LAMA (chart) meski deploy sudah sukses (dikonfirmasi lewat curl langsung ke bundle JS: hash berubah, teks "Rincian Bulanan"/"Selisih" ada, "Tren Bulanan" sudah tidak ada). Tab browser BARU (belum pernah dipakai) langsung render versi benar. **Kesimpulan untuk sesi depan**: kalau butuh verifikasi visual produksi via Browser pane, pakai tab baru tiap kali, jangan reuse tab lama dalam sesi panjang — service worker origin-scoped bisa nyangkut di tab manapun yang sempat kebuka sebelumnya.
+
+---
+
 ## 4. Commit Sesi Ini (`main`, sudah dipush & live)
 
 - `1c18292` `docs: add design spec for Transparansi Keuangan Umum`
@@ -90,6 +102,8 @@ User tegas: kartu masih terasa "seperti laporan anak TK", minta laporan sungguha
 - `66d2065` `feat(reports): redesign finance share card + add "Semua Data" period`
 - `3bf8208` `feat(reports): add multi-year monthly trend to finance transparency`
 - `85ef7b9` `fix(reports): gap-fill trailing months in share-card trend chart`
+- `9b14880` `fix(reports): replace monthly trend bar chart with a table`
+- `b3679a9` `fix(reports): show every month in trend tables, not just active ones`
 
 Push langsung ke `main` tanpa staging, atas instruksi eksplisit user sesi ini ("langsung push aja selalu biar bisa test") — lihat memory `user-vibe-coder`.
 
