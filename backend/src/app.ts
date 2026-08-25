@@ -92,7 +92,17 @@ app.get('/', (c) => c.text('MizanMu API v2'));
 app.use('/api/auth/sign-in/*', rateLimit('login'));
 app.use('/api/auth/sign-up/*', rateLimit('login'));
 // better-auth handles its own routes under /api/auth/*
-app.on(['POST', 'GET'], '/api/auth/*', (c) => auth.handler(c.req.raw));
+app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
+  try {
+    return await auth.handler(c.req.raw);
+  } catch (err) {
+    pinoLogger.error({ err, path: c.req.path }, 'Auth handler error');
+    return c.json({
+      error: 'auth_handler_error',
+      detail: err instanceof Error ? err.message : String(err)
+    }, 500);
+  }
+});
 
 // ─── Public API — read-only, anonymous, explicitly projected ──────────────
 app.route('/api/public/pap', publicPapRoute);
