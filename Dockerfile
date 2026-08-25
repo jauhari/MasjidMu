@@ -3,8 +3,9 @@ RUN npm install -g pnpm@9
 WORKDIR /app
 
 FROM base AS build
+ENV NODE_ENV=development
 COPY . .
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --prod=false
 RUN pnpm --filter @masjidmu/backend build
 
 FROM base AS runtime
