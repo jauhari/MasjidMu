@@ -68,15 +68,8 @@ export async function onRequest(context: PagesContext): Promise<Response> {
   headers.delete('x-hisabmu-tenant-sig');
   const tenantSlug = tenantSlugFromHost(incoming.hostname)
     ?? (isPublicApi ? validTenantSlug(incoming.searchParams.get('tenant_slug')) : null);
-  headers.set('x-forwarded-host', tenantSlug && isPublicApi ? `${tenantSlug}.hisabmu.id` : incoming.host);
+  headers.set('x-forwarded-host', incoming.host);
   headers.set('x-forwarded-proto', incoming.protocol.replace(':', ''));
-
-  const origin = headers.get('origin');
-  if (origin && incoming.pathname.startsWith('/api/auth/')) {
-    if (origin.includes('pages.dev')) {
-      headers.set('origin', 'https://hisabmu.pages.dev');
-    }
-  }
 
   if (tenantSlug && context.env.PUBLIC_TENANT_PROXY_SECRET) {
     const ts = String(Date.now());
@@ -120,6 +113,15 @@ export async function onRequest(context: PagesContext): Promise<Response> {
 
   const outHeaders = new Headers(upstream.headers);
   outHeaders.set('cache-control', 'private, no-store');
+  if (typeof upstream.headers.getSetCookie === 'function') {
+    const cookies = upstream.headers.getSetCookie();
+    if (cookies.length > 0) {
+      outHeaders.delete('set-cookie');
+      for (const cookie of cookies) {
+        outHeaders.append('set-cookie', cookie);
+      }
+    }
+  }
 
   return new Response(upstream.body, {
     status: upstream.status,

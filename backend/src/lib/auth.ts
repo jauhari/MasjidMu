@@ -30,6 +30,13 @@ export const auth = betterAuth({
     requireEmailVerification: false, // flip to true once Resend wired
   },
 
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: ['google'],
+    },
+  },
+
   // Only wired up once both env vars are set (see lib/env.ts) — omitted
   // entirely otherwise so the client's "Login dengan Google" button gets a
   // clean "provider not configured" error instead of a broken flow.
@@ -67,13 +74,20 @@ export const auth = betterAuth({
     'https://mizanmu.id',
     'https://www.mizanmu.id',
     'https://admin.mizanmu.id',
+    'https://*.mizanmu.id',
     'https://mizanmu.pages.dev',
+    'https://*.pages.dev',
     'https://mizanmu.pcmponjong.id',
+    'https://*.pcmponjong.id',
+    'https://masjidmu-backend.onrender.com',
     // Legacy domains during transition
     'https://hisabmu.id',
     'https://www.hisabmu.id',
     'https://admin.hisabmu.id',
+    'https://*.hisabmu.id',
     'https://hisabmu.pages.dev',
+    'https://masjidmu.id',
+    'https://*.masjidmu.id',
   ],
 
   plugins: [

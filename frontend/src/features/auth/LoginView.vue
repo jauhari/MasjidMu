@@ -41,16 +41,13 @@ async function onGoogleSignIn(): Promise<void> {
   googleSubmitting.value = true;
   error.value = null;
   try {
-    // Redirects the whole page to Google — only returns early on failure
-    // (e.g. provider not configured on the server yet).
     await auth.signInWithGoogle();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (
       msg.toLowerCase().includes('not enabled') ||
       msg.toLowerCase().includes('not configured') ||
-      msg.toLowerCase().includes('failed') ||
-      msg.toLowerCase().includes('500')
+      msg.toLowerCase().includes('not found')
     ) {
       error.value = 'Login dengan Google belum aktif di server. Silakan login dengan Email & Kata Sandi.';
     } else {

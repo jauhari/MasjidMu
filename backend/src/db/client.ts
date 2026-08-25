@@ -16,7 +16,12 @@ const { Pool } = pg;
 const pool = new Pool({
   connectionString: env.DATABASE_URL,
   max: 10,
-  ssl: env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl:
+    env.NODE_ENV === 'production' ||
+    env.DATABASE_URL.includes('sslmode=require') ||
+    env.DATABASE_URL.includes('neon.tech')
+      ? { rejectUnauthorized: false }
+      : false,
 });
 
 export const db = drizzle(pool, { schema, casing: 'snake_case' });

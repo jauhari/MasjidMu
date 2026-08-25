@@ -6,6 +6,8 @@
  */
 import type { MiddlewareHandler } from 'hono';
 import { auth, type Session } from '../lib/auth.js';
+import { syncUserAuthId } from '../lib/user-mapping.js';
+import { memGet, memSet } from '../lib/memory-cache.js';
 
 export type SessionVars = {
   session?: Session['session'];
@@ -19,6 +21,18 @@ export const sessionResolver = (): MiddlewareHandler<{ Variables: SessionVars }>
       if (session) {
         c.set('session', session.session);
         c.set('user', session.user);
+
+        // Sync authUserId to app-side users table if not synced recently
+        const syncKey = `user-synced:${session.user.id}`;
+        if (!memGet(syncKey)) {
+          await syncUserAuthId({
+            id: session.user.id,
+            email: session.user.email,
+            name: session.user.name,
+            image: session.user.image,
+          });
+          memSet(syncKey, '1', 300); // 5 min cache
+        }
       }
     } catch {
       // No session / invalid cookie — leave vars unset.

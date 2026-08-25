@@ -13,7 +13,7 @@
  *
  * This is idempotent and safe to call on every sign-in.
  */
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import { asSuperAdmin } from '../db/client.js';
 import { users, type User } from '../db/schema/core.js';
 
@@ -39,28 +39,55 @@ export async function findTenantUser(
 }
 
 /**
+ * Syncs the authUserId across all tenant memberships for a given email.
+ * Called on session resolution or login to ensure that users invited by email
+ * or signing in with Google have their app-side records linked to their auth user.
+ */
+export async function syncUserAuthId(auth: AuthUserSnapshot): Promise<void> {
+  if (!auth.email || !auth.id) return;
+  await asSuperAdmin(async (tx) => {
+    await tx
+      .update(users)
+      .set({
+        authUserId: auth.id,
+        avatarUrl: auth.image ?? undefined,
+        lastLoginAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(users.email, auth.email.toLowerCase().trim()), isNull(users.deletedAt)));
+  });
+}
+
+/**
  * Create-or-update the app-side `users` row for `(authUserId, tenantId)`.
  * Returns the resulting `users` row.
  *
- * If a row already exists, refreshes name/email/lastLoginAt from the auth
- * snapshot and clears `deletedAt`.
+ * If a row already exists (by authUserId OR email in that tenant),
+ * refreshes authUserId/name/email/lastLoginAt from the auth snapshot and clears `deletedAt`.
  */
 export async function ensureUserMapping(
   auth: AuthUserSnapshot,
   tenantId: string,
 ): Promise<User> {
+  const normalizedEmail = auth.email.toLowerCase().trim();
   return asSuperAdmin(async (tx) => {
     const existing = await tx
       .select()
       .from(users)
-      .where(and(eq(users.authUserId, auth.id), eq(users.tenantId, tenantId)));
+      .where(
+        and(
+          eq(users.tenantId, tenantId),
+          or(eq(users.authUserId, auth.id), eq(users.email, normalizedEmail)),
+        ),
+      );
 
     if (existing[0]) {
       const [updated] = await tx
         .update(users)
         .set({
-          email: auth.email,
-          name: auth.name,
+          authUserId: auth.id,
+          email: normalizedEmail,
+          name: auth.name || existing[0].name,
           avatarUrl: auth.image ?? existing[0].avatarUrl,
           lastLoginAt: new Date(),
           deletedAt: null,
@@ -76,8 +103,9 @@ export async function ensureUserMapping(
       .values({
         tenantId,
         authUserId: auth.id,
-        email: auth.email,
+        email: normalizedEmail,
         name: auth.name,
+        avatarUrl: auth.image,
         status: 'active',
         lastLoginAt: new Date(),
       })
