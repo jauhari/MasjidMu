@@ -1,7 +1,7 @@
 # Handoff — MasjidMu v2 / MizanMu
 
 **Tanggal:** 2026-08-25
-**Branch aktif:** `main` (belum dipush ke `origin/main` — lihat §4)
+**Branch aktif:** `main` (sudah dipush & live di produksi — lihat §4)
 **Domain Produksi:** Frontend `https://mizanmu.pages.dev`, Backend `https://masjidmu-backend.onrender.com`
 **Stack:** Vue 3 + Vite + Reka UI + Cloudflare Pages (frontend), Hono + Better-Auth + Drizzle + Neon PostgreSQL / Render (backend)
 
@@ -21,6 +21,8 @@ Sesi ini membangun fitur baru **"Transparansi Keuangan Umum"**: ringkasan keuang
 | **Bug fix: "month must be 1..12"** | Ditemukan dari screenshot permintaan user: begitu `ReportsView.vue` pindah ke mode periode "Custom" sebelum tanggal diisi, `load()` langsung fetch dengan `month`/`year` kosong → backend balas error mentah. `PublicPapView.vue` sudah punya guard yang benar (`if periodMode==='custom' && (!dateFrom||!dateTo)) return`) — `ReportsView.vue` tidak. Ditambahkan guard yang sama. |
 | **Bug lama ketemu & diperbaiki: `mv_account_balances` basi sejak Des 2025** | Saat verifikasi, `buildCashFlow` untuk PCA Ponjong balas Rp4.312.000 (angka Des 2025) padahal saldo riil (dihitung langsung dari `journal_lines`) adalah Rp6.610.000. Materialized view `mv_account_balances` ternyata **tidak pernah ter-refresh sejak Desember 2025** — persis bug cron yang sudah diketahui & di-flag sebagai follow-up di sesi sebelumnya (lihat §5 lama, "Cron 'Refresh materialized views' terus gagal"). **Root cause cron itu sendiri BELUM diselidiki** (masih di luar scope sesi ini) — tapi karena angka basi ini langsung memengaruhi fitur baru (transparansi publik yang salah angka = masalah kepercayaan, bukan cuma kosmetik), dilakukan `REFRESH MATERIALIZED VIEW CONCURRENTLY` manual (mv_account_balances + mv_monthly_summary) via Neon MCP — sama seperti workaround sesi sebelumnya. **Semua tenant diuntungkan** dari refresh ini (laporan Arus Kas & Aktivitas siapa pun yang datanya menyentuh 2026 sebelumnya juga ikut basi), bukan cuma PCA Ponjong. Refresh cron GH Actions yang mendasarinya **masih rusak** — lihat §3. |
 | **Data quality PCA Ponjong Agustus 2026** | 4 transaksi tertanggal Agustus 2026 (Infaq Anggota, Infaq kaleng, kegiatan Jalan sehat, pengembalian konsumsi) **semuanya tanpa kategori** (`category_id NULL`) — beda dari 75 baris impor historis yang sengaja dikategorikan rapi. Efeknya: kartu "Kategori Terbesar" bulan berjalan tampil "Belum ada data" (fallback UI sudah benar, bukan bug) sampai transaksi-transaksi ini dikategorikan manual. |
+| **Bug produksi #1 ketemu & diperbaiki: `PUBLIC_TENANT_PROXY_SECRET` tidak pernah di-set** | Setelah deploy pertama, halaman publik (baik Keuangan Umum baru MAUPUN Dana PAP lama) gagal `tenant_context_required` di `mizanmu.pages.dev`. Kodenya (`middleware/tenant.ts` + `frontend/functions/api/[[path]].ts`) sudah lama butuh 1 secret yang sama persis di Render DAN Cloudflare Pages untuk menandatangani/memverifikasi tenant lewat domain bersama (bukan subdomain per-tenant) — tapi secret ini **tidak pernah didaftarkan di `render.yaml`** (sama seperti gap `ANTHROPIC_API_KEY` sebelumnya) sehingga kemungkinan besar tidak pernah benar-benar di-set sejak awal. Baru ketahuan sekarang karena Dana PAP tidak pernah punya link yang bisa diklik untuk PCA Ponjong (tanpa dana), jadi jalur ini belum pernah benar-benar dicoba. User menambahkan nilai secret yang sama di kedua dashboard (Render + Cloudflare Pages Production); `render.yaml` diupdate dokumentasinya (commit `db39528`). Cloudflare Pages env var baru berlaku di deployment berikutnya — di-trigger manual via `gh workflow run deploy-cloudflare-pages.yml` (workflow ini pakai `paths:` filter ke `frontend/**` jadi commit kosong TIDAK memicunya, harus pakai `workflow_dispatch`). |
+| **Bug produksi #2 ketemu & diperbaiki: Puppeteer tidak jalan di Alpine** | Setelah secret di atas beres, endpoint gambar (`format=image`) balas 500 `internal_error` (JSON tetap 200, cuma gambar yang gagal). `Dockerfile` pakai `node:20-alpine` (musl libc) tapi tidak pernah menginstal Chromium yang kompatibel — Puppeteer default download Chromium versi glibc yang tidak bisa jalan di Alpine sama sekali. **Kemungkinan besar fitur PDF export yang sudah ada (Dana PAP, laporan lain) juga TIDAK PERNAH benar-benar jalan di produksi** — cuma belum ketahuan karena belum ada yang mencoba klik "Unduh PDF" dari deployment yang berhasil. Fix: `Dockerfile` sekarang `apk add chromium nss freetype harfbuzz ca-certificates ttf-freefont` di runtime stage + `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true` saat install + `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser`; `browser.ts` baca `PUPPETEER_EXECUTABLE_PATH` eksplisit + tambah flag `--disable-dev-shm-usage`. **Tidak sempat di-test-build lokal** (Docker Desktop tidak jalan di mesin ini) — divalidasi langsung lewat build asli di Render, sukses (commit `a3695a2`), sudah dikonfirmasi PNG asli ter-generate di produksi. **Rekomendasi kuat: coba "Unduh PDF" di produksi juga** (Laporan Keuangan atau Dana PAP) untuk pastikan fix Chromium ini juga memperbaiki jalur PDF yang sudah ada, bukan cuma PNG yang baru. |
 
 ---
 
@@ -41,21 +43,28 @@ Karena itu, verifikasi dilakukan lewat kombinasi jalur lain (semua terhadap data
 
 ## 3. Follow-up yang Direkomendasikan
 
-1. **Selidiki root cause cron refresh materialized view** (GH Actions `.github/workflows/cron-refresh-mv.yml` terus gagal) — masih belum diselidiki, sudah 2 sesi berturut cuma di-workaround manual. Kalau ini tidak diperbaiki, SEMUA laporan yang bergantung `mv_account_balances`/`mv_monthly_summary` (Arus Kas, Aktivitas, dan sekarang Transparansi Keuangan Umum) berisiko menampilkan angka basi untuk tenant mana pun yang datanya terus bertambah.
-2. **Kategorikan 4 transaksi PCA Ponjong Agustus 2026** yang belum ada kategorinya (lihat §1) — supaya kartu "Kategori Terbesar" tidak kosong utk bulan berjalan.
-3. **Uji kartu admin Transparansi Keuangan Umum di browser sungguhan** dengan akun asli (lihat §2.5) — belum pernah diklik langsung, meski sangat mirip pola Dana PAP yang sudah terbukti.
-4. **Push ke `origin/main`** — semua kerja sesi ini baru committed lokal (4 commit, lihat §4), belum dipush/dideploy. Perlu keputusan/aksi eksplisit user.
-5. **Selidiki kenapa `pnpm --filter @masjidmu/backend dev` (tsx watch) gantung** tanpa listen di Windows (lihat §2) — mengganggu alur iterasi lokal normal; `node dist/src/index.js` adalah workaround sementara.
-6. Follow-up lama yang masih berlaku (belum tersentuh sesi ini): konfirmasi `ANTHROPIC_API_KEY` di Render, lanjutan impor data tulisan tangan PCA Ponjong, CI Lint frontend, verifikasi Google Login dengan akun asli — lihat riwayat di §6.
+1. **Coba "Unduh PDF" di produksi** (Laporan Keuangan mana pun, atau publikasikan Dana PAP di tenant yang punya dana) — fix Chromium (§1) divalidasi lewat jalur PNG yang baru, tapi jalur PDF yang sudah lama ada belum benar-benar diklik ulang setelah fix untuk konfirmasi ikut kebenerin.
+2. **Selidiki root cause cron refresh materialized view** (GH Actions `.github/workflows/cron-refresh-mv.yml` terus gagal) — masih belum diselidiki, sudah 2 sesi berturut cuma di-workaround manual. Kalau ini tidak diperbaiki, SEMUA laporan yang bergantung `mv_account_balances`/`mv_monthly_summary` (Arus Kas, Aktivitas, dan sekarang Transparansi Keuangan Umum) berisiko menampilkan angka basi untuk tenant mana pun yang datanya terus bertambah.
+3. **Kategorikan 4 transaksi PCA Ponjong Agustus 2026** yang belum ada kategorinya (lihat §1) — supaya kartu "Kategori Terbesar" tidak kosong utk bulan berjalan.
+4. **Selidiki kenapa `pnpm --filter @masjidmu/backend dev` (tsx watch) gantung** tanpa listen di Windows (lihat §2) — mengganggu alur iterasi lokal normal; `node dist/src/index.js` adalah workaround sementara.
+5. Follow-up lama yang masih berlaku (belum tersentuh/dikonfirmasi sesi ini): konfirmasi `ANTHROPIC_API_KEY` di Render (masih belum ada laporan user coba ulang Impor Rekapan Kas), lanjutan impor data tulisan tangan PCA Ponjong, CI Lint frontend, verifikasi Google Login dengan akun asli — lihat riwayat di §6.
+
+**Sudah selesai/terverifikasi sesi ini** (tidak perlu follow-up lagi): kartu admin Transparansi Keuangan Umum sudah dipakai langsung oleh user di produksi (bukan cuma diuji Claude — `publication.publishedAt` yang tersimpan beda dari timestamp uji coba Claude sebelumnya); halaman publik + gambar PNG sudah dikonfirmasi jalan end-to-end lewat `mizanmu.pages.dev` sungguhan.
 
 ---
 
-## 4. Commit Sesi Ini (lokal, `main`, belum dipush)
+## 4. Commit Sesi Ini (`main`, sudah dipush & live)
 
 - `1c18292` `docs: add design spec for Transparansi Keuangan Umum`
 - `64f5465` `docs: add implementation plan for Transparansi Keuangan Umum`
 - `cb4c342` `feat(reports): add Transparansi Keuangan Umum backend module`
 - `378da07` `feat(reports): add Transparansi Keuangan Umum admin card + public page`
+- `b88a640` `docs: update HANDOFF.md with Transparansi Keuangan Umum session`
+- `db39528` `docs(render): document missing PUBLIC_TENANT_PROXY_SECRET env var`
+- `99e2a6b` `chore: trigger Cloudflare Pages redeploy` (commit kosong, tidak efektif — lihat §1, dipicu ulang via `workflow_dispatch`)
+- `a3695a2` `fix(docker): install Alpine-compatible Chromium for Puppeteer`
+
+Push langsung ke `main` tanpa staging, atas instruksi eksplisit user sesi ini ("langsung push aja selalu biar bisa test") — lihat memory `user-vibe-coder`.
 
 File utama: `backend/src/db/migrations/sql/097_public_finance_reports.sql`, `backend/src/modules/accounting/public-finance/*`, `backend/src/modules/accounting/reports/services/category-breakdown.ts`, `backend/src/modules/accounting/reports/export/browser.ts`, `frontend/src/features/public-finance/PublicFinanceView.vue`, `frontend/src/features/reports/ReportsView.vue`.
 
