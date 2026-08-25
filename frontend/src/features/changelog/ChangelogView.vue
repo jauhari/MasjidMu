@@ -80,7 +80,7 @@ const entries: ChangeEntry[] = [
   {
     date: '2026-07-13',
     type: 'feature',
-    title: 'Impor Rekapan PAP dari foto atau Excel',
+    title: 'Impor Rekapan Kas dari foto atau Excel',
     description:
       'Jalur impor khusus PAP: pilih satu Dana dan mapping Kas/Pendapatan/Beban, periksa hasil ekstraksi sebelum posting, lalu buat transaksi dan jurnal posted secara atomik. Foto memakai Claude Vision hanya untuk transkripsi; OCR tidak pernah memilih akun/dana atau mem-posting tanpa review. Batch memakai fingerprint sumber untuk retry aman tanpa duplikasi dan seluruh journal line membawa tag Dana PSAK 109.',
     files: [

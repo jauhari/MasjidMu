@@ -1297,7 +1297,7 @@ onMounted(async () => {
           size="sm"
           @click="router.push('/transactions/import/pap')"
         >
-          <Upload class="h-4 w-4" /> <span class="hidden lg:inline">Impor Rekapan PAP</span>
+          <Upload class="h-4 w-4" /> <span class="hidden lg:inline">Impor Rekapan Kas</span>
         </Button>
         <Button
           v-if="auth.isSuperAdmin"

@@ -397,9 +397,9 @@ onBeforeUnmount(() => {
       <ArrowLeft class="size-3.5" /> Kembali ke transaksi
     </button>
     <PageHeader
-      title="Impor Rekapan PAP"
+      title="Impor Rekapan Kas"
       description="Ubah rekapan kas dari foto atau Excel menjadi transaksi terposting, dengan pemeriksaan manusia sebelum posting."
-      :crumbs="[{ label: 'Dashboard', to: '/' }, { label: 'Transaksi', to: '/transactions' }, { label: 'Impor Rekapan PAP' }]"
+      :crumbs="[{ label: 'Dashboard', to: '/' }, { label: 'Transaksi', to: '/transactions' }, { label: 'Impor Rekapan Kas' }]"
     />
 
     <ol class="grid grid-cols-4 gap-2" aria-label="Tahapan impor">
