@@ -40,16 +40,33 @@ function categoryBlock(
 const MONTH_ABBR_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const TREND_MONTHS = 6;
 
+/** Trailing N calendar months ending at the latest month with any data --
+ * quiet months are filled with zero (not skipped), so the chart always
+ * reads as "the last N months" rather than silently compressing gaps. */
+function trailingMonths(trend: PublicFinanceReportResponse['data']['monthlyTrend'], n: number) {
+  if (!trend.length) return [];
+  const byMonth = new Map(trend.map((m) => [m.month, m]));
+  const [endYear, endMonth] = trend[trend.length - 1]!.month.split('-').map(Number) as [number, number];
+  const result: { month: string; income: string; expense: string }[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(endYear!, endMonth! - 1 - i, 1));
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const found = byMonth.get(key);
+    result.push({ month: key, income: found?.income ?? '0', expense: found?.expense ?? '0' });
+  }
+  return result;
+}
+
 function trendChartHtml(trend: PublicFinanceReportResponse['data']['monthlyTrend']): string {
-  const recent = trend.slice(-TREND_MONTHS);
+  const recent = trailingMonths(trend, TREND_MONTHS);
   if (recent.length < 2) return '';
   const maxValue = Math.max(1, ...recent.map((m) => Math.max(Number(m.income), Number(m.expense))));
   const cols = recent
     .map((m) => {
       const [, mm] = m.month.split('-');
       const label = MONTH_ABBR_ID[Number(mm) - 1];
-      const incomeH = Math.max(2, Math.round((Number(m.income) / maxValue) * 100));
-      const expenseH = Math.max(2, Math.round((Number(m.expense) / maxValue) * 100));
+      const incomeH = Number(m.income) > 0 ? Math.max(2, Math.round((Number(m.income) / maxValue) * 100)) : 0;
+      const expenseH = Number(m.expense) > 0 ? Math.max(2, Math.round((Number(m.expense) / maxValue) * 100)) : 0;
       return `<div class="trend-col">
         <div class="trend-bars">
           <div class="trend-bar income" style="height:${incomeH}%"></div>
