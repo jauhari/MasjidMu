@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +18,19 @@ const form = reactive({
 const submitting = ref(false);
 const googleSubmitting = ref(false);
 const error = ref<string | null>(null);
+
+onMounted(() => {
+  const queryError = router.currentRoute.value.query.error as string | undefined;
+  if (queryError) {
+    if (queryError.includes('account_already_linked') || queryError.includes('exists') || queryError.includes('USER_WITH_SAME_EMAIL_EXISTS')) {
+      error.value = 'Email Google ini sudah terdaftar. Silakan login dengan Email & Kata Sandi, atau hubungi admin.';
+    } else if (queryError.includes('state') || queryError.includes('invalid')) {
+      error.value = 'Sesi login Google telah kedaluwarsa atau tidak valid. Silakan coba lagi.';
+    } else {
+      error.value = `Gagal login dengan Google (${queryError}). Silakan coba lagi.`;
+    }
+  }
+});
 
 async function onSubmit(): Promise<void> {
   submitting.value = true;
