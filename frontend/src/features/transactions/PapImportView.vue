@@ -124,6 +124,18 @@ const mappingsReady = computed(() =>
   Boolean(mapping.cashAccountId && mapping.incomeAccountId && mapping.defaultExpenseAccountId)
   && (!fundRequired.value || Boolean(mapping.fundId)),
 );
+// Tombol "Baca & periksa rekapan" disabled tanpa penjelasan bikin user
+// mengira formnya macet/error. List ini ditampilkan langsung di bawah tombol
+// selama ada yang belum lengkap, supaya jelas apa yang masih harus diisi.
+const missingBeforeParse = computed(() => {
+  const missing: string[] = [];
+  if (!sourceReady.value) missing.push(sourceKind.value === 'images' ? 'unggah minimal 1 foto' : 'pilih file Excel');
+  if (fundRequired.value && !mapping.fundId) missing.push('Dana');
+  if (!mapping.cashAccountId) missing.push('Akun kas / bank');
+  if (!mapping.incomeAccountId) missing.push('Akun pemasukan');
+  if (!mapping.defaultExpenseAccountId) missing.push('Akun pengeluaran default');
+  return missing;
+});
 
 function rowValid(row: EditableRow): boolean {
   return Boolean(row.date && row.direction && row.description.trim() && Number(row.amount) > 0);
@@ -472,6 +484,9 @@ onBeforeUnmount(() => {
           <Button class="mt-2 w-full" :disabled="!sourceReady || !mappingsReady || parsing" @click="parseSource">
             <Loader2 v-if="parsing" class="size-4 animate-spin" /><UploadCloud v-else class="size-4" />{{ parsing ? (sourceKind === 'images' && imageParsePhase === 'uploading' ? 'Mengunggah gambar…' : 'Membaca rekapan…') : 'Baca & periksa rekapan' }}
           </Button>
+          <p v-if="!parsing && !loadingMappings && missingBeforeParse.length" class="text-center text-[11px] text-amber-700">
+            Lengkapi dulu: {{ missingBeforeParse.join(', ') }}.
+          </p>
           <div
             v-if="sourceKind === 'images' && parsing"
             class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-center"
