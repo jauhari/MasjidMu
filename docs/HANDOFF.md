@@ -1,194 +1,97 @@
 # Handoff — MasjidMu v2 / MizanMu
 
-**Tanggal:** 2026-08-25  
-**Branch aktif:** `main` (sudah dipush ke `origin/main`)  
-**Domain Produksi:** Frontend `https://mizanmu.pages.dev`, Backend `https://masjidmu-backend.onrender.com`  
+**Tanggal:** 2026-08-25
+**Branch aktif:** `main` (belum dipush ke `origin/main` — lihat §4)
+**Domain Produksi:** Frontend `https://mizanmu.pages.dev`, Backend `https://masjidmu-backend.onrender.com`
 **Stack:** Vue 3 + Vite + Reka UI + Cloudflare Pages (frontend), Hono + Better-Auth + Drizzle + Neon PostgreSQL / Render (backend)
 
 ---
 
-## 1. Ringkasan Sesi Terakhir (Google Login Root Cause + Onboarding PCA Ponjong + Impor Rekapan Kas)
+## 1. Ringkasan Sesi Terakhir (Transparansi Keuangan Umum + fix Mat-View Basi)
 
-Sesi ini melanjutkan perbaikan **Login dengan Google** dari sesi sebelumnya hari ini (commit `113f39a`/`cf7f0a7`/`c7ab4f6` — lihat §2) — fix-fix itu ternyata belum menyelesaikan masalah sebenarnya. Root cause baru ditemukan dan diperbaiki di sesi ini. Selain itu: onboarding tenant baru **PCA Ponjong** dengan import 75 transaksi historis dari Google Sheet, dan serangkaian perbaikan pada fitur **Impor Rekapan Kas** (sebelumnya bernama "Impor Rekapan PAP").
+Sesi ini membangun fitur baru **"Transparansi Keuangan Umum"**: ringkasan keuangan seluruh lembaga (posisi kas + kategori pemasukan/pengeluaran terbesar) yang bisa dipublikasikan sebagai link publik tanpa login dan diunduh sebagai gambar PNG untuk di-share ke WhatsApp. Berdampingan dengan "Transparansi Dana PAP" yang sudah ada — fitur itu **tidak diubah**, tetap butuh Dana PSAK 109, dan karena itu tidak bisa dipakai tenant seperti **PCA Ponjong** (edisi `yayasan`, 0 dana aktif) yang justru jadi pemicu permintaan fitur ini.
 
-| Area | Masalah | Solusi / Status |
-|---|---|---|
-| **Google Login — root cause sebenarnya** | User lapor: redirect ke Google sukses, tapi balik ke app selalu mendarat di halaman login lagi, tanpa pesan error. | **Service worker PWA** (`navigateFallback: '/index.html'` tanpa denylist) mencegat **semua navigasi top-level**, termasuk redirect callback Google (`GET /api/auth/callback/google?...`) — request itu tidak pernah sampai ke backend sama sekali, service worker langsung menyajikan `index.html` dari cache. Fix: `navigateFallbackDenylist: [/^\/api\//]` di `vite.config.ts`. |
-| **errorCallbackURL tidak diset** | `signInWithGoogle()` tidak kirim `errorCallbackURL` ke better-auth → error OAuth diarahkan ke halaman error bawaan better-auth (`/api/auth/error`), bukan ke `/login`. | Kirim `errorCallbackURL: origin + '/login'` di `store.ts`. |
-| **Router guard menelan query `error`** | Saat better-auth tidak bisa resolve flow (state tidak dikenali), ia fallback redirect ke `baseURL` root dengan `?error=...`. Guard router membungkus SELURUH query jadi param `redirect`, jadi `error` tidak pernah tampil di UI. | `router/index.ts`: forward `to.query.error` sebagai top-level query saat bounce ke `/login`. |
-| **PCA Ponjong: 75 transaksi historis** | User minta data Google Sheet buku kas PCA Ponjong dimasukkan ke aplikasi. | Ditranskripsi manual + divalidasi silang (saldo berjalan dihitung ulang independen, cocok 100% di 75/75 baris terhadap kolom Saldo sheet) → diposting via script one-off `backend/scripts/import-pca-ponjong-kas.ts` (dry-run default, idempoten). |
-| **Dashboard nunjukkin Rp0 padahal data ada** | Script import PCA Ponjong menulis langsung ke DB (bypass API), jadi tidak memicu refresh `mv_account_balances`/`mv_monthly_summary` yang biasanya otomatis jalan setelah posting via API. | Manual `REFRESH MATERIALIZED VIEW` sekali via Neon MCP. **Perlu perhatian**: cron GH Actions "Refresh materialized views" terus gagal (lihat §6 follow-up) — kalau ini tidak diperbaiki, tenant baru manapun bisa kena masalah serupa. |
-| **PAP Import: OCR tanpa indikator progress** | Tombol "Baca & periksa rekapan" cuma spinner statis saat OCR jalan (bisa sampai 2 menit) — user tidak tahu apakah masih jalan atau macet. | Tambah penghitung waktu berjalan ("N detik") yang update tiap detik di `PapImportView.vue`. |
-| **PAP Import: timeout 2 menit terlalu ketat** | OCR multi-gambar dengan *extended thinking* (Claude) bisa lebih dari 2 menit; client timeout duluan sebelum backend selesai. | `timeoutMs` upload gambar dinaikkan dari 120s → 300s. |
-| **Pesan error timeout salah untuk production** | `formatApiError` selalu bilang "pastikan backend jalan di port 3001" — instruksi dev lokal yang nyasar ke semua user, di semua request yang timeout. | Ganti jadi pesan generik: "Waktu tunggu habis sebelum server merespons. Periksa koneksi internet Anda, lalu coba lagi." |
-| **Model OCR: Opus 4.8 → Sonnet 5** | Diminta user untuk hemat token — ekstraksi tabel adalah tugas baca data, bukan penalaran kompleks. | `PAP_OCR_MODEL` di `pap-ocr.ts` diganti ke `claude-sonnet-5`. Test terkait (`pap-ocr.test.ts`) disesuaikan, 8/8 tetap hijau. |
-| **PAP Import: field Dana wajib padahal tenant tanpa dana** | `mappingsReady` mewajibkan `fundId` unconditional. Tenant non-LAZ (masjid/pesantren/**yayasan** — termasuk PCA Ponjong) punya 0 dana aktif by design → dropdown Dana selalu kosong → tombol baca terkunci **permanen**, tanpa penjelasan. | Dana hanya wajib kalau `activeFunds.length > 0` (`fundRequired` computed baru). Field jadi disabled + hint "Lembaga ini tidak memakai dana (fund) — bagian ini dilewati" saat tidak berlaku. `fundId` dikirim `null` (bukan `''`) ke backend — backend sudah nullable, ini murni gap frontend. |
-| **PAP Import: tombol disabled tanpa penjelasan (field akun)** | Pola sama seperti Dana — kalau Akun kas/pemasukan/pengeluaran belum dipilih, tombol nonaktif tanpa keterangan apa pun. | Tambah `missingBeforeParse` computed + teks "Lengkapi dulu: ..." di bawah tombol, list field yang masih kosong. |
-| **`ANTHROPIC_API_KEY` hilang dari `render.yaml`** | Satu-satunya secret yang tidak pernah didaftarkan di blueprint (beda dari Google/Resend/R2/dll) → endpoint OCR mengembalikan `503 ocr_not_configured` di production. | Ditambahkan sebagai entri `sync: false` di `render.yaml` untuk dokumentasi. **Nilai aktualnya HARUS diisi manual di Render Dashboard** — Claude tidak pernah menangani/memasukkan API key secara langsung (kebijakan keamanan). User sudah menambahkan sendiri di dashboard; **belum dikonfirmasi berhasil** (lihat §6). |
-| **Rebrand "Impor Rekapan PAP" → "Impor Rekapan Kas"** | Nama fitur menyiratkan "khusus PAP", padahal sekarang universal untuk tenant mana pun (terutama setelah fix Dana opsional di atas) — bikin user bingung ("nggak semua ada PAP"). | Label user-facing diganti (tombol, judul halaman, breadcrumb, judul entri changelog). URL (`/transactions/import/pap`), nama file kode, dan endpoint API sengaja **tidak** diubah — nama internal yang user tidak pernah lihat. |
+| Area | Ringkasan |
+|---|---|
+| **Fitur baru: Transparansi Keuangan Umum** | Tabel baru `public_finance_reports` (mirror `public_pap_reports` minus `fundId`). Modul baru `backend/src/modules/accounting/public-finance/{types,service,export-image,route}.ts`. Endpoint publik `GET /api/public/keuangan` (json/image), endpoint admin `GET/POST /api/v1/reports/public-finance{,/publish,/revoke}` (permission `reports.read`/`reports.publish`, sudah ada — tidak ada permission baru). |
+| **Kategori terbesar — query baru** | `backend/src/modules/accounting/reports/services/category-breakdown.ts` — `buildTopCategories()` group by `transaction_categories` (bukan akun COA), supaya nama-nya manusiawi dan tetap detail meski chart of account tenant sederhana (PCA Ponjong cuma punya 3 akun total — breakdown per-akun tidak informatif). |
+| **Posisi kas** | Pakai ulang `buildCashFlow(...).closingCash` yang sudah ada — tidak ada query baru. |
+| **Gambar untuk WA** | `page.screenshot({type:'png'})` via Puppeteer, HTML card 1080×1350 racikan sendiri (`export-image.ts`). Browser Puppeteer di-extract jadi shared module `reports/export/browser.ts`, dipakai bareng oleh export PDF (`export/pdf.ts`, refactor murni — perilaku tidak berubah) dan export PNG baru — satu instance Chromium, bukan dua. |
+| **Frontend** | Kartu admin baru "Transparansi Keuangan Umum" di `ReportsView.vue` (sejajar kartu Dana PAP, state independen). Halaman publik baru `features/public-finance/PublicFinanceView.vue` di route `/transparansi/:tenantSlug` (root, tanpa suffix `/pap` — supaya `/pap` tetap khusus Dana PAP). |
+| **Bug fix: "month must be 1..12"** | Ditemukan dari screenshot permintaan user: begitu `ReportsView.vue` pindah ke mode periode "Custom" sebelum tanggal diisi, `load()` langsung fetch dengan `month`/`year` kosong → backend balas error mentah. `PublicPapView.vue` sudah punya guard yang benar (`if periodMode==='custom' && (!dateFrom||!dateTo)) return`) — `ReportsView.vue` tidak. Ditambahkan guard yang sama. |
+| **Bug lama ketemu & diperbaiki: `mv_account_balances` basi sejak Des 2025** | Saat verifikasi, `buildCashFlow` untuk PCA Ponjong balas Rp4.312.000 (angka Des 2025) padahal saldo riil (dihitung langsung dari `journal_lines`) adalah Rp6.610.000. Materialized view `mv_account_balances` ternyata **tidak pernah ter-refresh sejak Desember 2025** — persis bug cron yang sudah diketahui & di-flag sebagai follow-up di sesi sebelumnya (lihat §5 lama, "Cron 'Refresh materialized views' terus gagal"). **Root cause cron itu sendiri BELUM diselidiki** (masih di luar scope sesi ini) — tapi karena angka basi ini langsung memengaruhi fitur baru (transparansi publik yang salah angka = masalah kepercayaan, bukan cuma kosmetik), dilakukan `REFRESH MATERIALIZED VIEW CONCURRENTLY` manual (mv_account_balances + mv_monthly_summary) via Neon MCP — sama seperti workaround sesi sebelumnya. **Semua tenant diuntungkan** dari refresh ini (laporan Arus Kas & Aktivitas siapa pun yang datanya menyentuh 2026 sebelumnya juga ikut basi), bukan cuma PCA Ponjong. Refresh cron GH Actions yang mendasarinya **masih rusak** — lihat §3. |
+| **Data quality PCA Ponjong Agustus 2026** | 4 transaksi tertanggal Agustus 2026 (Infaq Anggota, Infaq kaleng, kegiatan Jalan sehat, pengembalian konsumsi) **semuanya tanpa kategori** (`category_id NULL`) — beda dari 75 baris impor historis yang sengaja dikategorikan rapi. Efeknya: kartu "Kategori Terbesar" bulan berjalan tampil "Belum ada data" (fallback UI sudah benar, bukan bug) sampai transaksi-transaksi ini dikategorikan manual. |
 
 ---
 
-## 2. Root Cause Google Login — Detail Teknis
+## 2. Verifikasi yang Dilakukan
 
-### 2.1 Kenapa fix sesi sebelumnya (`113f39a`/`cf7f0a7`) belum cukup
+Tidak berhasil menjalankan `pnpm --filter @masjidmu/backend dev` (`tsx watch`) via harness preview tool — proses jalan (PID hidup, tidak crash) tapi **tidak pernah listen di port 3001** dalam >45 detik, dua kali percobaan, tanpa error log sama sekali. **Root cause belum ditemukan** (dugaan: interaksi `tsx watch` + spawn bertingkat `pnpm -C ... --filter ... dev` yang khas Windows — lihat komentar soal EADDRINUSE retry di `src/index.ts`). **Bukan disebabkan perubahan sesi ini**: kode yang sama, dijalankan via `pnpm tsx <script>.ts` biasa (bukan `watch`) atau via `node dist/src/index.js` (compiled), langsung listen instan (`READY after 0s`) — jadi murni gejala mode *watch*, bukan bug aplikasi. Kalau mau lanjut pakai `pnpm dev` untuk iterasi, ini layak diselidiki lebih jauh; untuk sementara `node dist/src/index.js` (setelah `pnpm build`) adalah workaround yang terbukti jalan.
 
-Fix-fix itu semuanya valid dan tetap diperlukan (account linking, cookie/origin, sync user, dll — lihat riwayat di bawah), tapi tidak menyentuh akar masalah: **request callback OAuth tidak pernah sampai ke Cloudflare Function atau backend sama sekali.**
+Karena itu, verifikasi dilakukan lewat kombinasi jalur lain (semua terhadap database produksi Neon yang sesungguhnya, project **"MasjidMu"** / `weathered-heart-75887530`, tenant PCA Ponjong nyata):
 
-### 2.2 Cara menemukan root cause
-
-Dibuktikan lewat perbandingan `fetch()` vs navigasi asli ke URL yang identik:
-
-```
-fetch('/api/auth/callback/google?state=X&code=Y')      → SELALU sampai backend, diproses benar
-navigate('/api/auth/callback/google?state=X&code=Y')   → SELALU "ketelan" — mendarat balik ke
-                                                            SPA shell dengan query mentah, seolah
-                                                            tidak pernah diproses backend
-```
-
-`fetch()` (mode `cors`) tidak match Workbox `navigateFallback`, sementara redirect Google adalah **navigasi browser sungguhan** (mode `navigate`) — persis yang coba di-fallback-kan Workbox ke `index.html`. Root cause: `vite.config.ts` set `navigateFallback: '/index.html'` **tanpa** `navigateFallbackDenylist`, jadi *semua* navigasi top-level (termasuk yang harusnya ke `/api/*`) diservis dari cache SW, bukan diteruskan ke jaringan.
-
-### 2.3 Fix
-
-```ts
-// frontend/vite.config.ts
-workbox: {
-  navigateFallback: '/index.html',
-  navigateFallbackDenylist: [/^\/api\//],  // ← baris baru
-  ...
-}
-```
-
-**Penting untuk user lama:** service worker lama masih aktif sampai ada satu reload penuh setelah deploy (mekanisme `autoUpdate` + `skipWaiting` + `clientsClaim` sudah aktif, jadi SW baru ambil alih otomatis di reload berikutnya — tidak perlu clear cache manual).
-
-### 2.4 Alur Autentikasi Google OAuth (End-to-End, sudah benar setelah fix ini)
-
-```
-[Browser: mizanmu.pages.dev/login]
-        │
-        ▼ 1. Klik "Lanjutkan dengan Google"
-[POST /api/auth/sign-in/social] ──(Cloudflare Proxy)──► [Hono Backend: onrender.com]
-        │                                                          │
-        │ ◄──────── 2. Set Cookie: __Secure-mizanmu.state ────────┘
-        │ ◄────────    Redirect: accounts.google.com ─────────────┘
-        ▼
-[Google Consent & Account Chooser]
-        │
-        ▼ 3. Redirect ke callback URL (navigasi browser asli — ini yang tadinya ketelan SW)
-[GET /api/auth/callback/google?code=...&state=...]
-        │
-   (Cloudflare Proxy dengan Cookie State)
-        │
-        ▼
-[Better-Auth Handler (Render Backend)]
-        │ ── Pertukaran code ke tokens via Google Token Endpoint
-        │ ── Link Google Account ke user di tabel user (Neon DB)
-        │ ── Set Cookie: __Secure-mizanmu.session_token
-        ▼
-[302 Redirect ke https://mizanmu.pages.dev/ (sukses) atau /login?error=... (gagal)]
-        │
-        ▼ 4. Inisialisasi Frontend Vue SPA
-[GET /api/auth/get-session] ──► Validasi Sesi ──► Berhasil
-[GET /api/v1/me] ───────────► Sinkronisasi Lembaga & Role ──► Masuk Dashboard!
-```
-
-### 2.5 Verifikasi yang sudah dilakukan
-
-Navigasi ASLI (bukan fetch) ke `/api/auth/callback/google?state=<valid>&code=<sengaja salah>` melalui proxy production → mendarat bersih di `https://mizanmu.pages.dev/login?error=invalid_code` **dan** banner merah "Sesi login Google telah kedaluwarsa atau tidak valid" benar-benar tampil di UI. Ini membuktikan seluruh rantai (navigasi → Cloudflare Function → backend → validasi state via cookie → redirect error → tampil di LoginView) bekerja end-to-end.
-
-**Belum bisa diverifikasi:** login Google dengan kode ASLI dari akun sungguhan (perlu kredensial user). Kalau `GOOGLE_CLIENT_SECRET` di Render salah, errornya sekarang akan **tampil jelas** di `/login` (bukan diam-diam gagal seperti sebelumnya).
+1. **Query kategori-terbesar** dijalankan langsung via SQL terhadap data PCA Ponjong asli → hasil cocok 100% dengan tabel kategorisasi di HANDOFF lama (`PCA-INFAQ` teratas utk income, `PCA-BEBAN-PROGRAM` teratas utk expense).
+2. **Render gambar** diuji 2×: sekali dengan data buatan (angka historis Rp4.312.000), sekali lewat `app.fetch()` in-process dengan header proxy tenant yang ditandatangani HMAC secara sah (mensimulasikan Cloudflare Function yang di produksi menerjemahkan `?tenant_slug=` jadi header `x-mizanmu-tenant-{slug,ts,sig}` — lihat `middleware/tenant.ts`) → PNG 1080×1350 valid, terbaca visual, layout benar termasuk fallback "Belum ada data".
+3. **Endpoint publik penuh** (`GET /api/public/keuangan`, format json & image) dieksekusi via `app.fetch()` in-process (bukan lewat port asli — lihat kendala di atas) dengan header proxy sah → 200 dengan angka benar (setelah refresh mat-view), 400 rapi untuk periode invalid, 404 rapi untuk tenant tidak dikenal.
+4. **Halaman publik di browser sungguhan** (`http://localhost:5173/transparansi/pca-ponjong`, via `node dist/src/index.js` + Vite dev server asli) → header, badge periode (default bulan berjalan), dan 3 combobox period-picker semua render benar. Fetch data gagal dengan `tenant_context_required` — **tapi ini bukan bug baru**: halaman `/transparansi/pca-ponjong/pap` yang SUDAH LIVE di produksi menunjukkan galat identik dalam kondisi lokal yang sama (query param `tenant_slug` sengaja tidak dipercaya untuk rute `/api/public/*`, cuma subdomain asli atau header proxy bertanda tangan — lihat `tenantResolver` di `middleware/tenant.ts`). Jadi baik fitur lama maupun baru sama-sama hanya bisa diuji penuh di produksi (lewat Cloudflare Function) atau lewat header proxy yang ditandatangani manual seperti poin 3.
+5. **Kartu admin** (tombol Publikasikan/Cabut/Unduh Gambar di `ReportsView.vue`) **tidak diklik langsung di browser** — perlu sesi login sungguhan (Google OAuth, tidak ada kredensial; atau email+password, tidak ada user test siap pakai tanpa membuat akun baru di database produksi). Percaya diri tinggi tapi tidak 100% teruji-visual: kode mengikuti pola kartu Dana PAP yang sudah terbukti jalan di produksi hampir persis 1:1 (nama fungsi, struktur state, endpoint shape), `pnpm typecheck` + `pnpm build` bersih di kedua paket.
+6. Semua data uji coba (publish flag PCA Ponjong) **sudah dikembalikan ke `is_published=false`** setelah verifikasi — tidak ada state tersisa yang tidak diinginkan.
 
 ---
 
-## 3. PCA Ponjong — Onboarding & Import Data Historis
+## 3. Follow-up yang Direkomendasikan
 
-### Tenant
-
-- Slug `pca-ponjong`, nama "PCA Ponjong", edisi `yayasan` (dibuat sebelum sesi ini, via UI Tenant Management).
-- Edisi `yayasan` **tidak** dapat dana PSAK 109 (`fundSeedOptionsForEdition` return null) — relevan untuk bug "Dana wajib" di §1.
-
-### Sumber data
-
-Google Sheet buku kas: `https://docs.google.com/spreadsheets/d/16V89jk23vX42VzVTLa7t2lzU2kkopcb0bnI2GvWjKy0` — 75 baris transaksi nyata (26 Agustus 2023 – 10 Desember 2025), kolom No/TGL/Keterangan/Masuk/Keluar/Saldo. Baris 76–114 di sheet adalah baris kosong/carry-forward, sengaja dikecualikan. Sheet punya dua kolom "Saldo" yang saling beda mulai baris ke-7 (kolom pertama sepertinya rumus yang berhenti ter-update) — kolom Saldo terakhir dipakai sebagai acuan karena tervalidasi 100% cocok dengan perhitungan independen.
-
-### Kategorisasi
-
-| Kategori (`transaction_categories`) | Akun | Dipakai untuk |
-|---|---|---|
-| `PCA-INFAQ` — Infaq Anggota & Donatur | Kredit 4100 Infaq & Sedekah | Mayoritas baris Masuk (infaq anggota/kaleng/perorangan) |
-| `PCA-PDPT-LAIN` — Penerimaan Lain-lain | Kredit 4900 Pendapatan Lain-lain | 4 baris non-infaq: Pengembalian konsumsi, Subsidi Rapat, Sisa uang konsumsi, Bagi hasil kaos |
-| `PCA-BEBAN-PROGRAM` — Beban Program & Kegiatan | Debit 5200 Beban Program | Semua baris Keluar (transport, konsumsi, kontribusi kegiatan, dll) |
-| *(tanpa kategori)* | Kredit 3900 Saldo Awal Aset Neto | Baris #1 "Dana dari Bendahara Lama" — diperlakukan sebagai saldo awal, bukan pendapatan operasional |
-
-### Script
-
-`backend/scripts/import-pca-ponjong-kas.ts` — dry-run by default, `--apply` untuk menulis. Idempoten via `referenceNo` unik per baris (`PCA-KAS-001` dst — baris yang sudah ada di-skip). Memakai jalur posting yang sama dengan `commitPAPImport` (posted langsung + jurnal + approval log dalam satu DB transaction).
-
-```bash
-cd backend
-pnpm tsx scripts/import-pca-ponjong-kas.ts            # dry-run
-pnpm tsx scripts/import-pca-ponjong-kas.ts --apply     # tulis ke DB
-```
-
-**Hasil**: 75 transaksi posted, 75 jurnal, saldo Kas akhir Rp4.312.000 — diverifikasi independen lewat SQL langsung (`SUM(debit) - SUM(credit)` dari `journal_lines`, bukan dari laporan script itu sendiri). Total semua jurnal tenant (debit − kredit) = Rp0, artinya setiap baris balance sempurna.
-
-**Catatan penting**: setelah script seperti ini jalan (nulis langsung ke DB, bukan lewat API), **materialized view harus di-refresh manual** — lihat §1 baris "Dashboard nunjukkin Rp0".
-
-### Data lanjutan (belum diimpor — in progress)
-
-User punya foto tulisan tangan kelanjutan buku kas yang SAMA (saldo awal foto = Rp4.312.000, persis saldo akhir import di atas — nyambung tanpa celah). Karena ini tulisan tangan (bukan data digital bersih), **direkomendasikan diimpor lewat UI "Impor Rekapan Kas" sendiri** (bukan script manual lagi) — supaya ada langkah review manusia sebelum posting, mengingat OCR tulisan tangan lebih rawan salah baca. User sedang mencoba jalur ini; sempat terblokir oleh dua bug yang sudah diperbaiki di §1 (Dana wajib, tombol disabled tanpa penjelasan) dan oleh `ANTHROPIC_API_KEY` yang belum ter-set di Render — status akhir belum dikonfirmasi.
+1. **Selidiki root cause cron refresh materialized view** (GH Actions `.github/workflows/cron-refresh-mv.yml` terus gagal) — masih belum diselidiki, sudah 2 sesi berturut cuma di-workaround manual. Kalau ini tidak diperbaiki, SEMUA laporan yang bergantung `mv_account_balances`/`mv_monthly_summary` (Arus Kas, Aktivitas, dan sekarang Transparansi Keuangan Umum) berisiko menampilkan angka basi untuk tenant mana pun yang datanya terus bertambah.
+2. **Kategorikan 4 transaksi PCA Ponjong Agustus 2026** yang belum ada kategorinya (lihat §1) — supaya kartu "Kategori Terbesar" tidak kosong utk bulan berjalan.
+3. **Uji kartu admin Transparansi Keuangan Umum di browser sungguhan** dengan akun asli (lihat §2.5) — belum pernah diklik langsung, meski sangat mirip pola Dana PAP yang sudah terbukti.
+4. **Push ke `origin/main`** — semua kerja sesi ini baru committed lokal (4 commit, lihat §4), belum dipush/dideploy. Perlu keputusan/aksi eksplisit user.
+5. **Selidiki kenapa `pnpm --filter @masjidmu/backend dev` (tsx watch) gantung** tanpa listen di Windows (lihat §2) — mengganggu alur iterasi lokal normal; `node dist/src/index.js` adalah workaround sementara.
+6. Follow-up lama yang masih berlaku (belum tersentuh sesi ini): konfirmasi `ANTHROPIC_API_KEY` di Render, lanjutan impor data tulisan tangan PCA Ponjong, CI Lint frontend, verifikasi Google Login dengan akun asli — lihat riwayat di §6.
 
 ---
 
-## 4. Konfigurasi Environment — Update
+## 4. Commit Sesi Ini (lokal, `main`, belum dipush)
 
-Tambahan dari checklist Render di §198 (masih berlaku semua): pastikan juga
+- `1c18292` `docs: add design spec for Transparansi Keuangan Umum`
+- `64f5465` `docs: add implementation plan for Transparansi Keuangan Umum`
+- `cb4c342` `feat(reports): add Transparansi Keuangan Umum backend module`
+- `378da07` `feat(reports): add Transparansi Keuangan Umum admin card + public page`
 
-| Variable | Status | Keterangan |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | User sudah menambahkan manual di Render Dashboard sesi ini | **Belum dikonfirmasi berhasil** — minta user coba ulang Impor Rekapan Kas dan laporkan hasilnya. Kalau masih 503 `ocr_not_configured`, cek apakah Render benar-benar sudah redeploy setelah env var disimpan. |
+File utama: `backend/src/db/migrations/sql/097_public_finance_reports.sql`, `backend/src/modules/accounting/public-finance/*`, `backend/src/modules/accounting/reports/services/category-breakdown.ts`, `backend/src/modules/accounting/reports/export/browser.ts`, `frontend/src/features/public-finance/PublicFinanceView.vue`, `frontend/src/features/reports/ReportsView.vue`.
 
----
-
-## 5. Commit Terkait di `main` (hari ini, urut waktu)
-
-Sesi sebelumnya (Google OAuth, belum menyelesaikan akar masalah):
-- `113f39a` `fix(auth): enable google account linking, dynamic pages.dev origin, and sync user auth id`
-- `cf7f0a7` `fix(ui): display error query parameter on login page`
-- `c7ab4f6` `docs: update HANDOFF.md with detailed google oauth and session architecture`
-
-Sesi ini:
-- `fdd0ec0` `fix(auth): route Google OAuth errors to login page instead of better-auth's default page`
-- `9ab5851` `fix(router): forward OAuth error query param through the login-required bounce`
-- `fc466f5` `fix(pwa): exclude /api/* from service worker navigation fallback` — **root cause fix**
-- `e93ca4a` `fix(pap-import): show live elapsed time during OCR + fix wrong timeout message`
-- `f3386d2` `perf(pap-ocr): switch table extraction from Opus 4.8 to Sonnet 5`
-- `ff7f1d0` `chore(scripts): add PCA Ponjong buku kas historical import`
-- `4c45bc0` `fix(pap-import): don't require a fund on tenants that don't have any`
-- `a629652` `fix(pap-import): explain why the read button stays disabled; document missing ANTHROPIC_API_KEY`
-- `7245c49` `rename(pap-import): user-facing label PAP -> Rekapan Kas`
-
-Semua commit sudah di-deploy sukses ke Cloudflare Pages (frontend) dan Render (backend, auto-deploy on push).
+Migrasi `097` sudah **diterapkan langsung ke database produksi Neon** (project `weathered-heart-75887530`) via Neon MCP — additive-only (`CREATE TABLE IF NOT EXISTS`), diverifikasi kolom-per-kolom cocok dengan schema Drizzle. `backend/.env` lokal baru dibuat (di-gitignore, tidak masuk commit) berisi kredensial dev yang sama dengan `current-envvars.json` di root proyek, plus `BETTER_AUTH_URL=http://localhost:3001` (bukan domain produksi) dan `PUBLIC_TENANT_PROXY_SECRET` baru (dipakai murni utk simulasi header proxy saat verifikasi lokal, lihat §2).
 
 ---
 
-## 6. Follow-up yang direkomendasikan
+## 5. Konfigurasi Environment
 
-1. **Konfirmasi `ANTHROPIC_API_KEY`**: minta user coba Impor Rekapan Kas lagi sekarang, pastikan tidak lagi 503.
-2. **Import data lanjutan PCA Ponjong**: foto tulisan tangan (saldo awal Rp4.312.000) — tunggu user coba lewat UI, siap bantu baca hasil OCR kalau diminta.
-3. **Cron "Refresh materialized views" (GH Actions) terus gagal** — belum diselidiki di sesi ini, cuma di-workaround dengan refresh manual sekali untuk PCA Ponjong. Kalau tidak diperbaiki, tenant/import baru lain berisiko kena gejala "dashboard Rp0" yang sama. Cek `.github/workflows/cron-refresh-mv.yml` dan `backend/src/lib/cron/refresh-mat-views.ts`.
-4. **CI "Lint" terus gagal** (pre-existing, tidak terkait perubahan sesi ini) — `frontend` ESLint v9 butuh `eslint.config.js` (flat config), belum ada. Tidak menghalangi deploy (job terpisah dari "Deploy Cloudflare Pages"), tapi sebaiknya diperbaiki supaya CI hijau lagi.
-5. **Verifikasi login Google dengan akun asli** — belum pernah dicoba end-to-end dengan kredensial sungguhan sejak root cause diperbaiki.
-6. **Dokumentasi lama masih pakai nama "Impor Rekapan PAP"** (`README.md`, `docs/PAP_IMPORT.md`) — sengaja tidak diubah sesi ini (di luar scope permintaan user, hanya UI yang di-rename). Update kalau mau konsisten penuh.
+Tidak ada perubahan environment variable produksi sesi ini. Checklist Render lama (§ lama, masih berlaku semua) belum diperiksa ulang.
 
 ---
 
-## 7. Riwayat Handoff Sebelumnya (ringkas)
-
-### 2026-08-25 (awal hari, sebelum sesi ini) — Transparansi Publik Dana PAP, Impor Rekapan PAP (awal), Dashboard Arus Kas
+## 6. Riwayat Handoff Sebelumnya (ringkas)
 
 <details>
-<summary>Detail (klik untuk buka)</summary>
+<summary>2026-08-25 (awal hari, sebelum sesi ini) — Google Login Root Cause, Onboarding PCA Ponjong, Impor Rekapan Kas</summary>
+
+### Google Login — root cause sebenarnya
+
+Root cause: **service worker PWA** (`navigateFallback: '/index.html'` tanpa denylist) mencegat **semua navigasi top-level**, termasuk redirect callback Google — request itu tidak pernah sampai ke backend. Fix: `navigateFallbackDenylist: [/^\/api\//]` di `vite.config.ts`. Detail alur OAuth end-to-end, verifikasi navigasi asli vs `fetch()`, dan fix-fix pendukung (errorCallbackURL, router guard query error) — lihat commit `fc466f5`, `fdd0ec0`, `9ab5851`. **Belum diverifikasi** dengan akun Google asli.
+
+### PCA Ponjong — Onboarding & Import Data Historis
+
+Tenant `pca-ponjong`, edisi `yayasan` (tanpa Dana PSAK 109). 75 transaksi historis (26 Agu 2023 – 10 Des 2025) dari Google Sheet, ditranskripsi manual + divalidasi silang, diposting via `backend/scripts/import-pca-ponjong-kas.ts` (dry-run default). Kategorisasi: `PCA-INFAQ` (Infaq Anggota & Donatur → 4100), `PCA-PDPT-LAIN` (Penerimaan Lain-lain → 4900), `PCA-BEBAN-PROGRAM` (Beban Program & Kegiatan → 5200). Saldo Kas akhir saat itu Rp4.312.000. **Data lanjutan** (foto tulisan tangan, saldo awal = saldo akhir di atas) direkomendasikan diimpor lewat UI "Impor Rekapan Kas", bukan script manual.
+
+### PAP Import (sekarang "Impor Rekapan Kas") — perbaikan
+
+Live progress timer saat OCR, timeout upload 120s→300s, pesan error timeout digeneralisasi (bukan lagi nyaranin cek port 3001 di production), model OCR Opus 4.8→Sonnet 5 (hemat token), Dana jadi opsional (tidak wajib utk tenant tanpa Dana aktif), tombol disabled kasih alasan jelas. `ANTHROPIC_API_KEY` ditambahkan ke `render.yaml` (dokumentasi saja, nilai diisi manual di Render Dashboard oleh user — **belum dikonfirmasi berhasil**). Rename user-facing "Impor Rekapan PAP"→"Impor Rekapan Kas" (URL/kode/endpoint internal sengaja tidak diubah).
+
+Commit: `e93ca4a`, `f3386d2`, `ff7f1d0`, `4c45bc0`, `a629652`, `7245c49`.
+
+</details>
+
+<details>
+<summary>2026-08-25 (lebih awal lagi) — Transparansi Publik Dana PAP, Impor Rekapan PAP (awal), Dashboard Arus Kas</summary>
 
 #### Transparansi publik Dana PAP
 
@@ -200,11 +103,11 @@ File utama: `backend/src/db/migrations/sql/096_public_pap_reports.sql`, `backend
 
 Commit: `c38b091`, `4a0d1c9`, `a757efb`, `3103d47`, `037ea2f`.
 
-> Catatan domain: dokumentasi asli memakai `hisabmu.pages.dev` — domain produksi sekarang `mizanmu.pages.dev`/`mizanmu.id` (lihat §4 di atas), URL lama kemungkinan sudah tidak berlaku.
+> Catatan domain: dokumentasi asli memakai `hisabmu.pages.dev` — domain produksi sekarang `mizanmu.pages.dev`/`mizanmu.id`, URL lama kemungkinan sudah tidak berlaku.
 
-#### Impor Rekapan PAP (sekarang "Impor Rekapan Kas" — lihat §1)
+#### Impor Rekapan PAP (sekarang "Impor Rekapan Kas")
 
-Impor Excel atau 1–5 foto JPEG/PNG/WebP untuk satu dana. OCR (awalnya Claude Opus 4.8, sekarang Sonnet 5 — §1) hanya mentranskripsi; keputusan akun/dana dan posting tetap lewat review operator. Validasi MIME/signature/ukuran/fingerprint mencegah input salah/duplikat. Batch posting atomik + idempoten + audit trail.
+Impor Excel atau 1–5 foto JPEG/PNG/WebP untuk satu dana. OCR (awalnya Claude Opus 4.8, lalu Sonnet 5) hanya mentranskripsi; keputusan akun/dana dan posting tetap lewat review operator. Validasi MIME/signature/ukuran/fingerprint mencegah input salah/duplikat. Batch posting atomik + idempoten + audit trail.
 
 File utama: `frontend/src/features/transactions/PapImportView.vue`, `backend/src/modules/accounting/transactions/{pap-import,pap-ocr,pap-commit}.ts`, `backend/src/db/migrations/sql/095_accounting_import_batches.sql`, `docs/PAP_IMPORT.md`.
 
@@ -218,7 +121,7 @@ Commit: `59c569b`, `bff6ff4`.
 
 ```bash
 # dari masjidmu-v2/
-pnpm --filter @masjidmu/backend dev    # :3001
+pnpm --filter @masjidmu/backend dev    # :3001 -- lihat §2 sesi terbaru: kalau gantung, coba `pnpm build && node dist/src/index.js`
 pnpm --filter @masjidmu/frontend dev   # :5173
 pnpm --dir frontend typecheck
 pnpm --dir frontend build
@@ -226,6 +129,9 @@ pnpm --dir frontend build
 
 </details>
 
-### 2026-07-01
+<details>
+<summary>2026-07-01</summary>
 
 Modul konten: event recurrence, perbaikan submit event/list duplikat, mass edit Program/Event/Berita/Pengumuman/Galeri, dan redesign form Event. Implementasinya masih ada; untuk detail historis gunakan git sebelum pembaruan handoff ini.
+
+</details>
