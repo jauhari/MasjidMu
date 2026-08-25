@@ -149,10 +149,19 @@ export const useAuthStore = defineStore('auth', () => {
     await ensureTenantSelected();
   }
 
-  /** Redirects to Google's consent screen; resumes via init() on return. */
+  /**
+   * Redirects to Google's consent screen; resumes via init() on return.
+   *
+   * errorCallbackURL must be set explicitly — better-auth defaults to its own
+   * unstyled `/api/auth/error` page when omitted, which bypasses LoginView's
+   * `?error=` banner entirely and made every OAuth-callback failure look like
+   * a silent bounce back to a blank/wrong page instead of a visible message.
+   */
   async function signInWithGoogle(): Promise<void> {
-    const callbackURL = typeof window !== 'undefined' ? `${window.location.origin}/` : '/';
-    const res = await authClient.signIn.social({ provider: 'google', callbackURL });
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const callbackURL = `${origin}/`;
+    const errorCallbackURL = `${origin}/login`;
+    const res = await authClient.signIn.social({ provider: 'google', callbackURL, errorCallbackURL });
     if (res?.error) {
       throw new Error(res.error.message || 'Login dengan Google gagal');
     }

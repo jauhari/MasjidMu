@@ -20,7 +20,11 @@ export interface SocialSignInResult {
 
 interface AuthClient {
   signIn: {
-    social: (opts: { provider: 'google'; callbackURL?: string }) => Promise<SocialSignInResult>;
+    social: (opts: {
+      provider: 'google';
+      callbackURL?: string;
+      errorCallbackURL?: string;
+    }) => Promise<SocialSignInResult>;
   };
 }
 
