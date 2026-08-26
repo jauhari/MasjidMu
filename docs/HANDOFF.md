@@ -26,6 +26,20 @@ Sesi ini membangun fitur baru **"Transparansi Keuangan Umum"**: ringkasan keuang
 
 ---
 
+## 1b. Status Arsitektur: Multi-Tenant vs Multi-User vs Self-Service Signup
+
+User tanya "apakah MizanMu sudah mendukung multi user, jadi setiap orang bisa membuat datanya sendiri?" — pertanyaan ini sebenarnya 3 hal berbeda, dan statusnya BEDA-BEDA untuk masing-masing (diverifikasi langsung dari kode, bukan dari ingatan/dokumentasi lama):
+
+| Lapisan | Status | Bukti di kode |
+|---|---|---|
+| **Multi-tenant** (isolasi antar lembaga, mis. PCA Ponjong vs lembaga lain) | **✅ Sudah, dan kuat** | Isolasi di-*enforce* di level Postgres pakai Row-Level Security (`db/migrations/sql/010_rls_enable.sql` + `011_rls_policies.sql`, pakai `FORCE ROW LEVEL SECURITY` — bukan cuma filter `WHERE tenant_id=?` di kode yang bisa kelewat kalau ada bug). `db/client.ts` (`withTenant()`) set `app.current_tenant_id` per transaksi; `middleware/tenant.ts` resolve tenant dari subdomain/header. |
+| **Multi-user dalam 1 tenant** (mis. Bendahara + Admin sama-sama akses PCA Ponjong dengan akun masing-masing) | **⚠️ Skema database sudah ada, tapi TIDAK BISA dipakai dari UI** | `db/schema/core.ts` punya `users`/`roles`/`permissions`/`rolePermissions`/`userRoles` lengkap, dan `middleware/permission.ts` sudah bisa enforce-nya — tapi `modules/core/users/route.ts` cuma punya `GET`/`PATCH`, **tidak ada endpoint untuk create/invite user baru**, tidak ada route `roles` yang di-mount di `app.ts` sama sekali, dan tidak ada halaman "Tim"/"Anggota" di frontend manapun (grep `/api/v1/users` & `roles` di `frontend/src` = 0 hasil). `lib/user-mapping.ts` (`resolveActingUser`) sengaja TIDAK auto-provision user baru ke tenant ("would silently grant tenant presence without an explicit invite"). **Kesimpulan**: sekarang nambah orang kedua ke satu lembaga cuma bisa lewat insert manual ke database, bukan dari UI. |
+| **Self-service signup** (orang baru daftar sendiri & otomatis dapat lembaga baru, tanpa admin platform terlibat) | **❌ Tidak ada sama sekali** | `LoginView.vue` cuma ada form Login (Google + email/password), tidak ada link "Daftar". `TenantsView.vue` di-gate `v-if="auth.isSuperAdmin"` — cuma super admin platform yang bisa bikin lembaga baru, lewat halaman internal, bukan alur publik. `POST /api/v1/tenants` butuh permission `tenants.create` (super_admin only). Better-auth `organization` plugin (`lib/auth.ts`) di-set `allowUserToCreateOrganization: false` secara eksplisit. Tidak ada route `signup`/`register`/`onboard` di manapun di backend. |
+
+**Kalau mau lanjutkan salah satu gap ini, user sudah ditanya prioritasnya (belum dijawab per akhir sesi ini)**: fitur "undang anggota tim" ke lembaga yang sudah ada, atau orang bisa daftar sendiri bikin lembaga baru? Keduanya scope-nya cukup besar (yang pertama perlu endpoint invite + email + UI role management; yang kedua perlu alur onboarding publik + verifikasi + rate-limiting/anti-abuse karena bikin tenant baru itu resource nyata).
+
+---
+
 ## 2. Verifikasi yang Dilakukan
 
 Tidak berhasil menjalankan `pnpm --filter @masjidmu/backend dev` (`tsx watch`) via harness preview tool — proses jalan (PID hidup, tidak crash) tapi **tidak pernah listen di port 3001** dalam >45 detik, dua kali percobaan, tanpa error log sama sekali. **Root cause belum ditemukan** (dugaan: interaksi `tsx watch` + spawn bertingkat `pnpm -C ... --filter ... dev` yang khas Windows — lihat komentar soal EADDRINUSE retry di `src/index.ts`). **Bukan disebabkan perubahan sesi ini**: kode yang sama, dijalankan via `pnpm tsx <script>.ts` biasa (bukan `watch`) atau via `node dist/src/index.js` (compiled), langsung listen instan (`READY after 0s`) — jadi murni gejala mode *watch*, bukan bug aplikasi. Kalau mau lanjut pakai `pnpm dev` untuk iterasi, ini layak diselidiki lebih jauh; untuk sementara `node dist/src/index.js` (setelah `pnpm build`) adalah workaround yang terbukti jalan.
