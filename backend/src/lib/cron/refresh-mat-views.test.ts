@@ -109,9 +109,9 @@ describe('refreshOnce', () => {
 
   it('clears memory cache keys with report: prefix', async () => {
     const { _store } = await import('../memory-cache.js');
-    _store.set('report:1:trial-balance', { data: 'stale' });
-    _store.set('report:2:aktivitas', { data: 'stale' });
-    _store.set('other:key', { data: 'keep' });
+    _store.set('report:1:trial-balance', { value: 'stale', expiresAt: Date.now() + 60_000 });
+    _store.set('report:2:aktivitas', { value: 'stale', expiresAt: Date.now() + 60_000 });
+    _store.set('other:key', { value: 'keep', expiresAt: Date.now() + 60_000 });
 
     const result = await refreshOnce();
 
@@ -139,7 +139,7 @@ describe('refreshOnce', () => {
 
   it('sums memory + Redis deleted counts', async () => {
     const { _store } = await import('../memory-cache.js');
-    _store.set('report:mem', { data: 'x' });
+    _store.set('report:mem', { value: 'x', expiresAt: Date.now() + 60_000 });
     mockScan.mockResolvedValueOnce(['0', ['report:red1', 'report:red2']]);
 
     const result = await refreshOnce();

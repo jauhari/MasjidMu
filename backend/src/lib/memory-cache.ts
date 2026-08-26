@@ -47,3 +47,6 @@ export function memClearPrefix(prefix: string): number {
 export function memClear(): void {
   store.clear();
 }
+
+/** Direct store access — only for tests that need to inspect/seed the cache. */
+export const _store = store;
