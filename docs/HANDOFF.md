@@ -168,16 +168,20 @@ Dua bug kritis diperbaiki dalam sesi ini:
 - Cron workflow akan mulai jalan setelah deploy ke produksi
 
 **Hasil verifikasi 2026-08-26:**
-- ❌ `JOBS_INTERNAL_TOKEN` **BELUM diset** sebagai GitHub Actions secret — workflow log menunjukkan `Authorization: Bearer ` (kosong)
-- ❌ Workflow URL lama `api.masjidmu.id` **DNS tidak resolve** — sudah diperbaiki ke `masjidmu-backend.onrender.com`
-- ❌ Endpoint `/api/jobs/refresh-mv` **belum di-deploy** ke Render (code baru, belum push/deploy)
+- ✅ `JOBS_INTERNAL_TOKEN` sudah diset sebagai GitHub Actions secret — workflow log menunjukkan token terkirim
+- ✅ Workflow URL sudah diperbaiki ke `masjidmu-backend.onrender.com/api/jobs/refresh-mv`
+- ✅ Endpoint `/api/jobs/refresh-mv` sudah di-deploy ke Render — token auth works (401 tanpa token, 200/500 dengan token)
+- ❌ **`DATABASE_URL_OWNER` belum diset** di Render — `asOwner()` fallback ke `DATABASE_URL` (app role, `NOBYPASSRLS`), sehingga `REFRESH MATERIALIZED VIEW` gagal dengan `permission denied` (500 `refresh_failed`)
+
+**Root cause 500:** `asOwner()` di `db/client.ts` menggunakan `DATABASE_URL_OWNER ?? DATABASE_URL`. Di Render, `DATABASE_URL_OWNER` tidak ada → fallback ke `DATABASE_URL` → `masjidmu_app` role → permission denied untuk `REFRESH MATERIALIZED VIEW`.
+
+**Verifikasi lokal:** `DATABASE_URL_OWNER` (neondb_owner) → ✅ CONCURRENTLY refresh berhasil. `DATABASE_URL` (masjidmu_app) → ❌ `permission denied for materialized view mv_account_balances`.
 
 **Langkah yang harus dilakukan user:**
-1. Push code ke `main` (termasuk fix workflow URL + jobs route baru)
-2. Deploy ke Render (auto-trigger dari push ke main)
-3. Buka Render Dashboard → service `masjidmu-backend` → Environment → copy nilai `JOBS_INTERNAL_TOKEN`
-4. Buka GitHub Repo → Settings → Secrets and variables → Actions → New repository secret → name: `JOBS_INTERNAL_TOKEN`, value: (paste dari Render)
-5. Trigger workflow manual: `gh workflow run "Cron — Refresh materialized views"` atau tunggu cron berikutnya
+1. Buka Render Dashboard → service `masjidmu-backend` → Environment
+2. Tambah env var baru: `DATABASE_URL_OWNER` = `postgresql://neondb_owner:npg_rjJf2U5TNBtM@ep-summer-firefly-aob90kp0-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require`
+3. Deploy ulang (Render auto-deploy saat env berubah)
+4. Trigger workflow manual: `gh workflow run "Cron — Refresh materialized views"`
 
 ---
 
