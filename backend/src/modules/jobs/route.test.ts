@@ -132,7 +132,10 @@ describe('jobs route — POST /refresh-mv', () => {
       headers: { Authorization: `Bearer ${VALID_TOKEN}` },
     });
     expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ error: 'refresh_failed' });
+    const body = await res.json();
+    expect(body.error).toBe('refresh_failed');
+    expect(typeof body.detail).toBe('string');
+    expect(body.detail.length).toBeGreaterThan(0);
   });
 
   it('GET /refresh-mv returns 404 (only POST allowed)', async () => {
