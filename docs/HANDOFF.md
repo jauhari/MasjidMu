@@ -96,6 +96,17 @@ User perhatikan: halaman publik ganti angka ringkasan sesuai periode yang dipili
 
 ---
 
+## 4e. Iterasi Lanjutan #5 — daftar transaksi per periode (Mutasi)
+
+User minta: kalau pilih bulan spesifik (mis. Agustus), halaman harusnya nunjukkin data TRANSAKSI bulan itu (bukan cuma ringkasan), dengan bagian yang berhubungan privasi (siapa dari siapa) disensor — persis pola "Mutasi Dana PAP" yang sudah ada. "Semua Data" tetap pakai tabel rekap bulanan (§4c/§4d), bukan daftar transaksi (bisa 100+ baris). Ditambahkan (commit `7578219`):
+
+- `reports/services/movements.ts` (baru) — daftar transaksi per periode, HANYA expose tanggal/kategori/arah/jumlah (TIDAK expose deskripsi transaksi — bisa mengandung nama donor mis. "Infaq Bu Rohmi" — TIDAK expose nomor referensi/akun). Baca arah dari `account_type` via journal_lines (bukan `transaction_categories`, konsisten dengan `monthly-trend.ts` — robust meski ada transaksi belum dikategorikan). Baris saldo awal (akun ekuitas) otomatis ter-exclude oleh filter `account_type IN ('income','expense')`. Dibatasi 200 baris (jaga-jaga custom range besar).
+- `PublicFinanceView.vue`: card "Mutasi Transaksi" — muncul kalau `periodMode !== 'all'` (kebalikan persis dari kondisi Rincian Bulanan), styling `<Table>` sama seperti mutasi Dana PAP.
+
+**Verifikasi**: pakai teknik unregister service worker (§4d) dari awal kali ini, langsung dapat versi benar tanpa muter-muter. `read_page`/screenshot sempat balas "empty page"/viewport 0x0 (Browser pane tidak sedang ditampilkan user) — tidak coba paksa lebih jauh karena `get_page_text` sudah cukup membuktikan kedua mode (`Per Bulan` → Mutasi, `Semua Data` → Rincian Bulanan) benar secara konstruksi kode (kondisi v-if saling eksklusif) + sudah diverifikasi masing-masing di sesi ini.
+
+---
+
 ## 4. Commit Sesi Ini (`main`, sudah dipush & live)
 
 - `1c18292` `docs: add design spec for Transparansi Keuangan Umum`
@@ -113,6 +124,7 @@ User perhatikan: halaman publik ganti angka ringkasan sesuai periode yang dipili
 - `9b14880` `fix(reports): replace monthly trend bar chart with a table`
 - `b3679a9` `fix(reports): show every month in trend tables, not just active ones`
 - `e4aedc2` `fix(reports): tie monthly breakdown to the "Semua Data" period only`
+- `7578219` `feat(reports): show anonymized transaction list for a specific period`
 
 Push langsung ke `main` tanpa staging, atas instruksi eksplisit user sesi ini ("langsung push aja selalu biar bisa test") — lihat memory `user-vibe-coder`.
 
