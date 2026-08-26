@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed, watch } from 'vue';
+import { onMounted, reactive, ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   Plus,
@@ -334,25 +334,6 @@ function toggleRow(node: TreeNode): void {
   if (node.children.length > 0) toggle(node);
 }
 
-const parentOptions = computed(() => {
-  const roots = buildTree(items.value.filter((a) => a.id !== editing.value?.id));
-  const options: Array<{ id: string; label: string; code: string; name: string; depth: number }> = [];
-  function walk(nodes: TreeNode[]): void {
-    for (const node of nodes) {
-      options.push({
-        id: node.id,
-        label: `${node.code} - ${node.name}`,
-        code: node.code,
-        name: node.name,
-        depth: node.depth,
-      });
-      walk(node.children);
-    }
-  }
-  walk(roots);
-  return options;
-});
-
 const accountTypeOptions = computed(() =>
   Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label })),
 );
@@ -362,16 +343,7 @@ const normalBalanceOptions = [
   { value: 'credit', label: 'Kredit' },
 ];
 
-const parentSelectOptions = computed(() => [
-  { value: '', label: 'Tidak ada', code: 'Root', name: 'Tidak ada induk', depth: 0, muted: true },
-  ...parentOptions.value.map((p) => ({
-    value: p.id,
-    label: p.label,
-    code: p.code,
-    name: p.name,
-    depth: p.depth,
-  })),
-]);
+
 
 function toggle(node: TreeNode): void {
   const next = new Set(expanded.value);

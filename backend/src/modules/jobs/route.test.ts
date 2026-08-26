@@ -25,7 +25,6 @@ vi.mock('../../lib/logger.js', () => ({
   },
 }));
 
-import { describe as _d, expect as _e, it as _i } from 'vitest';
 import { jobsRoute } from './route.js';
 import { _refreshMatViewsOnce } from '../../lib/cron/refresh-mat-views.js';
 

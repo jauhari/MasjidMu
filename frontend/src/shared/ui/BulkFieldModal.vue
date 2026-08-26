@@ -5,7 +5,7 @@ import FormField from '@/shared/ui/FormField.vue';
 import Modal from '@/shared/ui/Modal.vue';
 import type { SelectOption } from '@/shared/ui/AppSelect.vue';
 
-const props = defineProps<{
+defineProps<{
   open: boolean;
   title: string;
   label: string;

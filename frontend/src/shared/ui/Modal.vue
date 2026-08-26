@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
-const props = defineProps<{
+defineProps<{
   open: boolean;
   title?: string;
   description?: string;

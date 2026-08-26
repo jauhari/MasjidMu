@@ -21,7 +21,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -525,11 +524,6 @@ async function openEdit(t: Transaction): Promise<void> {
   }
 }
 
-const journalTotal = computed(() => {
-  const debit = form.lines.reduce((a, l) => a + Number(l.debit || 0), 0);
-  const credit = form.lines.reduce((a, l) => a + Number(l.credit || 0), 0);
-  return debit === credit && debit > 0 ? debit : null;
-});
 
 function validateTransactionForm(): string | null {
   const withAmount = form.lines.filter(
@@ -706,11 +700,6 @@ function categoryLabel(id: string | null): string {
 function categoryDirection(id: string | null): 'income' | 'expense' | null {
   if (!id) return null;
   return categoryMap.value.get(id)?.direction ?? null;
-}
-
-function accountLabel(id: string): string {
-  const a = accounts.value.find((x) => x.id === id);
-  return a ? `${a.code} — ${a.name}` : id;
 }
 
 function accountParts(id: string): { code: string; name: string } {
