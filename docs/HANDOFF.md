@@ -107,6 +107,14 @@ User minta: kalau pilih bulan spesifik (mis. Agustus), halaman harusnya nunjukki
 
 ---
 
+## 4f. Iterasi Lanjutan #6 — period selector "world class pro level"
+
+User minta selector periode dibikin lebih premium secara visual. Diganti dari dropdown polos jadi **segmented pill control** (commit `10c7a47`): badge ikon kalender + 3 tombol pill (Per Bulan/Custom/Semua Data), pill aktif putih+shadow+teks hijau brand, non-aktif transparan+abu. Cuma mode switcher yang di-custom — AppSelect/DatePicker untuk bulan/tahun/rentang tanggal tetap dipakai apa adanya (component shared, restyle di sini akan merembet ke semua halaman lain yang pakai).
+
+**Verifikasi visual butuh trik baru**: Browser pane tool (`computer screenshot`, `zoom`) gagal total sepanjang sesi ini dengan error "pane is not displayed" (panel Browser di UI user memang tidak sedang dibuka/fokus). Solusi: tulis script Puppeteer standalone (backend sudah punya dependency-nya) yang screenshot URL produksi sungguhan secara independen, lalu kirim hasilnya lewat SendUserFile — hasilnya kartu lengkap (header, selector, ringkasan, kategori, mutasi) semua kekonfirmasi kerja bareng dengan benar di produksi.
+
+---
+
 ## 4. Commit Sesi Ini (`main`, sudah dipush & live)
 
 - `1c18292` `docs: add design spec for Transparansi Keuangan Umum`
@@ -125,6 +133,7 @@ User minta: kalau pilih bulan spesifik (mis. Agustus), halaman harusnya nunjukki
 - `b3679a9` `fix(reports): show every month in trend tables, not just active ones`
 - `e4aedc2` `fix(reports): tie monthly breakdown to the "Semua Data" period only`
 - `7578219` `feat(reports): show anonymized transaction list for a specific period`
+- `10c7a47` `feat(reports): redesign period selector as a segmented pill control`
 
 Push langsung ke `main` tanpa staging, atas instruksi eksplisit user sesi ini ("langsung push aja selalu biar bisa test") — lihat memory `user-vibe-coder`.
 
