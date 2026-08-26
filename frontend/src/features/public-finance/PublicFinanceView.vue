@@ -239,9 +239,9 @@ onMounted(() => { void load(); });
               <div class="w-[95px]"><AppSelect v-model="yearStr" :options="yearOptions" /></div>
             </template>
             <template v-else-if="periodMode === 'custom'">
-              <DatePicker v-model="dateFrom" placeholder="Dari tgl" />
+              <div class="w-[150px]"><DatePicker v-model="dateFrom" placeholder="Dari tgl" /></div>
               <span class="text-xs text-muted-foreground">s/d</span>
-              <DatePicker v-model="dateTo" placeholder="Sampai tgl" />
+              <div class="w-[150px]"><DatePicker v-model="dateTo" placeholder="Sampai tgl" /></div>
             </template>
           </div>
         </CardContent>
