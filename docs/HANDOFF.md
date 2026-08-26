@@ -1,6 +1,6 @@
 # Handoff — MasjidMu v2 / MizanMu
 
-**Tanggal:** 2026-08-25
+**Tanggal:** 2026-08-26 (terakhir diperbarui)
 **Branch aktif:** `main` (sudah dipush & live di produksi — lihat §4)
 **Domain Produksi:** Frontend `https://mizanmu.pages.dev`, Backend `https://masjidmu-backend.onrender.com`
 **Stack:** Vue 3 + Vite + Reka UI + Cloudflare Pages (frontend), Hono + Better-Auth + Drizzle + Neon PostgreSQL / Render (backend)
@@ -19,7 +19,7 @@ Sesi ini membangun fitur baru **"Transparansi Keuangan Umum"**: ringkasan keuang
 | **Gambar untuk WA** | `page.screenshot({type:'png'})` via Puppeteer, HTML card 1080×1350 racikan sendiri (`export-image.ts`). Browser Puppeteer di-extract jadi shared module `reports/export/browser.ts`, dipakai bareng oleh export PDF (`export/pdf.ts`, refactor murni — perilaku tidak berubah) dan export PNG baru — satu instance Chromium, bukan dua. |
 | **Frontend** | Kartu admin baru "Transparansi Keuangan Umum" di `ReportsView.vue` (sejajar kartu Dana PAP, state independen). Halaman publik baru `features/public-finance/PublicFinanceView.vue` di route `/transparansi/:tenantSlug` (root, tanpa suffix `/pap` — supaya `/pap` tetap khusus Dana PAP). |
 | **Bug fix: "month must be 1..12"** | Ditemukan dari screenshot permintaan user: begitu `ReportsView.vue` pindah ke mode periode "Custom" sebelum tanggal diisi, `load()` langsung fetch dengan `month`/`year` kosong → backend balas error mentah. `PublicPapView.vue` sudah punya guard yang benar (`if periodMode==='custom' && (!dateFrom||!dateTo)) return`) — `ReportsView.vue` tidak. Ditambahkan guard yang sama. |
-| **Bug lama ketemu & diperbaiki: `mv_account_balances` basi sejak Des 2025** | Saat verifikasi, `buildCashFlow` untuk PCA Ponjong balas Rp4.312.000 (angka Des 2025) padahal saldo riil (dihitung langsung dari `journal_lines`) adalah Rp6.610.000. Materialized view `mv_account_balances` ternyata **tidak pernah ter-refresh sejak Desember 2025** — persis bug cron yang sudah diketahui & di-flag sebagai follow-up di sesi sebelumnya (lihat §5 lama, "Cron 'Refresh materialized views' terus gagal"). **Root cause cron itu sendiri BELUM diselidiki** (masih di luar scope sesi ini) — tapi karena angka basi ini langsung memengaruhi fitur baru (transparansi publik yang salah angka = masalah kepercayaan, bukan cuma kosmetik), dilakukan `REFRESH MATERIALIZED VIEW CONCURRENTLY` manual (mv_account_balances + mv_monthly_summary) via Neon MCP — sama seperti workaround sesi sebelumnya. **Semua tenant diuntungkan** dari refresh ini (laporan Arus Kas & Aktivitas siapa pun yang datanya menyentuh 2026 sebelumnya juga ikut basi), bukan cuma PCA Ponjong. Refresh cron GH Actions yang mendasarinya **masih rusak** — lihat §3. |
+| **Bug lama ketemu & diperbaiki: `mv_account_balances` basi sejak Des 2025** | Saat verifikasi, `buildCashFlow` untuk PCA Ponjong balas Rp4.312.000 (angka Des 2025) padahal saldo riil (dihitung langsung dari `journal_lines`) adalah Rp6.610.000. Materialized view `mv_account_balances` ternyata **tidak pernah ter-refresh sejak Desember 2025** — persis bug cron yang sudah diketahui & di-flag sebagai follow-up di sesi sebelumnya (lihat §5 lama, "Cron 'Refresh materialized views' terus gagal"). **Root cause cron itu sendiri sudah diperbaiki di sesi 2026-08-26** (lihat §7b) — endpoint `/api/jobs/refresh-mv` yang sebelumnya tidak ada sekarang sudah dibuat — tapi karena angka basi ini langsung memengaruhi fitur baru (transparansi publik yang salah angka = masalah kepercayaan, bukan cuma kosmetik), dilakukan `REFRESH MATERIALIZED VIEW CONCURRENTLY` manual (mv_account_balances + mv_monthly_summary) via Neon MCP — sama seperti workaround sesi sebelumnya. **Semua tenant diuntungkan** dari refresh ini (laporan Arus Kas & Aktivitas siapa pun yang datanya menyentuh 2026 sebelumnya juga ikut basi), bukan cuma PCA Ponjong. Refresh cron GH Actions yang mendasarinya **sudah diperbaiki** — lihat §7b (endpoint `/api/jobs/refresh-mv` sudah dibuat). |
 | **Data quality PCA Ponjong Agustus 2026** | 4 transaksi tertanggal Agustus 2026 (Infaq Anggota, Infaq kaleng, kegiatan Jalan sehat, pengembalian konsumsi) **semuanya tanpa kategori** (`category_id NULL`) — beda dari 75 baris impor historis yang sengaja dikategorikan rapi. Efeknya: kartu "Kategori Terbesar" bulan berjalan tampil "Belum ada data" (fallback UI sudah benar, bukan bug) sampai transaksi-transaksi ini dikategorikan manual. |
 | **Bug produksi #1 ketemu & diperbaiki: `PUBLIC_TENANT_PROXY_SECRET` tidak pernah di-set** | Setelah deploy pertama, halaman publik (baik Keuangan Umum baru MAUPUN Dana PAP lama) gagal `tenant_context_required` di `mizanmu.pages.dev`. Kodenya (`middleware/tenant.ts` + `frontend/functions/api/[[path]].ts`) sudah lama butuh 1 secret yang sama persis di Render DAN Cloudflare Pages untuk menandatangani/memverifikasi tenant lewat domain bersama (bukan subdomain per-tenant) — tapi secret ini **tidak pernah didaftarkan di `render.yaml`** (sama seperti gap `ANTHROPIC_API_KEY` sebelumnya) sehingga kemungkinan besar tidak pernah benar-benar di-set sejak awal. Baru ketahuan sekarang karena Dana PAP tidak pernah punya link yang bisa diklik untuk PCA Ponjong (tanpa dana), jadi jalur ini belum pernah benar-benar dicoba. User menambahkan nilai secret yang sama di kedua dashboard (Render + Cloudflare Pages Production); `render.yaml` diupdate dokumentasinya (commit `db39528`). Cloudflare Pages env var baru berlaku di deployment berikutnya — di-trigger manual via `gh workflow run deploy-cloudflare-pages.yml` (workflow ini pakai `paths:` filter ke `frontend/**` jadi commit kosong TIDAK memicunya, harus pakai `workflow_dispatch`). |
 | **Bug produksi #2 ketemu & diperbaiki: Puppeteer tidak jalan di Alpine** | Setelah secret di atas beres, endpoint gambar (`format=image`) balas 500 `internal_error` (JSON tetap 200, cuma gambar yang gagal). `Dockerfile` pakai `node:20-alpine` (musl libc) tapi tidak pernah menginstal Chromium yang kompatibel — Puppeteer default download Chromium versi glibc yang tidak bisa jalan di Alpine sama sekali. **Kemungkinan besar fitur PDF export yang sudah ada (Dana PAP, laporan lain) juga TIDAK PERNAH benar-benar jalan di produksi** — cuma belum ketahuan karena belum ada yang mencoba klik "Unduh PDF" dari deployment yang berhasil. Fix: `Dockerfile` sekarang `apk add chromium nss freetype harfbuzz ca-certificates ttf-freefont` di runtime stage + `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true` saat install + `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser`; `browser.ts` baca `PUPPETEER_EXECUTABLE_PATH` eksplisit + tambah flag `--disable-dev-shm-usage`. **Tidak sempat di-test-build lokal** (Docker Desktop tidak jalan di mesin ini) — divalidasi langsung lewat build asli di Render, sukses (commit `a3695a2`), sudah dikonfirmasi PNG asli ter-generate di produksi. **Rekomendasi kuat: coba "Unduh PDF" di produksi juga** (Laporan Keuangan atau Dana PAP) untuk pastikan fix Chromium ini juga memperbaiki jalur PDF yang sudah ada, bukan cuma PNG yang baru. |
@@ -42,7 +42,7 @@ User tanya "apakah MizanMu sudah mendukung multi user, jadi setiap orang bisa me
 
 ## 2. Verifikasi yang Dilakukan
 
-Tidak berhasil menjalankan `pnpm --filter @masjidmu/backend dev` (`tsx watch`) via harness preview tool — proses jalan (PID hidup, tidak crash) tapi **tidak pernah listen di port 3001** dalam >45 detik, dua kali percobaan, tanpa error log sama sekali. **Root cause belum ditemukan** (dugaan: interaksi `tsx watch` + spawn bertingkat `pnpm -C ... --filter ... dev` yang khas Windows — lihat komentar soal EADDRINUSE retry di `src/index.ts`). **Bukan disebabkan perubahan sesi ini**: kode yang sama, dijalankan via `pnpm tsx <script>.ts` biasa (bukan `watch`) atau via `node dist/src/index.js` (compiled), langsung listen instan (`READY after 0s`) — jadi murni gejala mode *watch*, bukan bug aplikasi. Kalau mau lanjut pakai `pnpm dev` untuk iterasi, ini layak diselidiki lebih jauh; untuk sementara `node dist/src/index.js` (setelah `pnpm build`) adalah workaround yang terbukti jalan.
+~~Tidak berhasil menjalankan `pnpm --filter @masjidmu/backend dev` (`tsx watch`)~~ — **SUDAH DIPERBAIKI di sesi 2026-08-26** (lihat §7a). Root cause: tsx CLI reads stdin (blocks on Windows TTY) + thread-stream crash on node --watch restart. Fix: `scripts/dev-watch.ts` wrapper menutup stdin sebelum spawn tsx watch — hot-reload aktif. Verifikasi: server start OK, healthz respond, tsx watch process alive.
 
 Karena itu, verifikasi dilakukan lewat kombinasi jalur lain (semua terhadap database produksi Neon yang sesungguhnya, project **"MasjidMu"** / `weathered-heart-75887530`, tenant PCA Ponjong nyata):
 
@@ -58,9 +58,9 @@ Karena itu, verifikasi dilakukan lewat kombinasi jalur lain (semua terhadap data
 ## 3. Follow-up yang Direkomendasikan
 
 1. **Coba "Unduh PDF" di produksi** (Laporan Keuangan mana pun, atau publikasikan Dana PAP di tenant yang punya dana) — fix Chromium (§1) divalidasi lewat jalur PNG yang baru, tapi jalur PDF yang sudah lama ada belum benar-benar diklik ulang setelah fix untuk konfirmasi ikut kebenerin.
-2. **Selidiki root cause cron refresh materialized view** (GH Actions `.github/workflows/cron-refresh-mv.yml` terus gagal) — masih belum diselidiki, sudah 2 sesi berturut cuma di-workaround manual. Kalau ini tidak diperbaiki, SEMUA laporan yang bergantung `mv_account_balances`/`mv_monthly_summary` (Arus Kas, Aktivitas, dan sekarang Transparansi Keuangan Umum) berisiko menampilkan angka basi untuk tenant mana pun yang datanya terus bertambah.
+2. ~~**Selidiki root cause cron refresh materialized view**~~ ✅ **SUDAH DIPERBAIKI** (lihat §7b) — endpoint `/api/jobs/refresh-mv` sudah dibuat. Cron workflow akan mulai jalan setelah deploy ke produksi + setting `JOBS_INTERNAL_TOKEN` sebagai GitHub Actions secret.
 3. **Kategorikan 4 transaksi PCA Ponjong Agustus 2026** yang belum ada kategorinya (lihat §1) — supaya kartu "Kategori Terbesar" tidak kosong utk bulan berjalan.
-4. **Selidiki kenapa `pnpm --filter @masjidmu/backend dev` (tsx watch) gantung** tanpa listen di Windows (lihat §2) — mengganggu alur iterasi lokal normal; `node dist/src/index.js` adalah workaround sementara.
+4. ~~**Selidiki kenapa `pnpm --filter @masjidmu/backend dev` (tsx watch) gantung**~~ ✅ **SUDAH DIPERBAIKI** (lihat §7a) — root cause: tsx CLI reads stdin + thread-stream crash on node --watch. Fix: `dev-watch.ts` wrapper, hot-reload restored.
 5. Follow-up lama yang masih berlaku (belum tersentuh/dikonfirmasi sesi ini): konfirmasi `ANTHROPIC_API_KEY` di Render (masih belum ada laporan user coba ulang Impor Rekapan Kas), lanjutan impor data tulisan tangan PCA Ponjong, CI Lint frontend, verifikasi Google Login dengan akun asli — lihat riwayat di §6.
 
 **Sudah selesai/terverifikasi sesi ini** (tidak perlu follow-up lagi): kartu admin Transparansi Keuangan Umum sudah dipakai langsung oleh user di produksi (bukan cuma diuji Claude — `publication.publishedAt` yang tersimpan beda dari timestamp uji coba Claude sebelumnya); halaman publik + gambar PNG sudah dikonfirmasi jalan end-to-end lewat `mizanmu.pages.dev` sungguhan.
@@ -126,6 +126,58 @@ User minta: kalau pilih bulan spesifik (mis. Agustus), halaman harusnya nunjukki
 User minta selector periode dibikin lebih premium secara visual. Diganti dari dropdown polos jadi **segmented pill control** (commit `10c7a47`): badge ikon kalender + 3 tombol pill (Per Bulan/Custom/Semua Data), pill aktif putih+shadow+teks hijau brand, non-aktif transparan+abu. Cuma mode switcher yang di-custom — AppSelect/DatePicker untuk bulan/tahun/rentang tanggal tetap dipakai apa adanya (component shared, restyle di sini akan merembet ke semua halaman lain yang pakai).
 
 **Verifikasi visual butuh trik baru**: Browser pane tool (`computer screenshot`, `zoom`) gagal total sepanjang sesi ini dengan error "pane is not displayed" (panel Browser di UI user memang tidak sedang dibuka/fokus). Solusi: tulis script Puppeteer standalone (backend sudah punya dependency-nya) yang screenshot URL produksi sungguhan secara independen, lalu kirim hasilnya lewat SendUserFile — hasilnya kartu lengkap (header, selector, ringkasan, kategori, mutasi) semua kekonfirmasi kerja bareng dengan benar di produksi.
+
+---
+
+## 7. Fix: tsx watch hang + Missing `/api/jobs/refresh-mv` endpoint (2026-08-26)
+
+Dua bug kritis diperbaiki dalam sesi ini:
+
+### 7a. Backend dev server hang di Windows — `tsx watch` tidak pernah listen
+
+**Root cause — tiga lapis masalah:**
+
+1. **`tsx` CLI reads from `process.stdin`** — The tsx CLI wrapper (v4.22.3) reads from stdin internally. When stdin is inherited from a real terminal (cmd.exe / PowerShell), this blocks the event loop forever. Proof: `tsx src/index.ts` → hangs; `tsx src/index.ts </dev/null` → works instantly.
+2. **`node --watch --import tsx` crashes** — `thread-stream` (pino-pretty's worker thread) throws `Error: this should not happen: undefined` when Node's `--watch` restarts the process, because the worker is in an inconsistent state after kill. This causes a crash-loop.
+3. **Port mismatch (secondary)** — Backend default `PORT=3000`, tapi frontend Vite proxy (`vite.config.ts`) mengarah ke `http://localhost:3001`.
+
+**Fix:** Created `scripts/dev-watch.ts` — a cross-platform wrapper that:
+- Closes `process.stdin` immediately (prevents the hang)
+- Spawns `tsx watch` as a child process with file-watching intact
+- Properly forwards exit codes
+
+`pnpm dev` → `node scripts/dev-watch.ts` (tsx watch with hot-reload, no hang)
+`pnpm dev:stable` → `tsc --noEmit && node --watch dist/src/index.js` (compile + watch, most stable)
+
+**Verifikasi:** Server start OK, healthz respond `{"status":"ok"}`, tsx watch process ALIVE (hot-reload active). `pnpm typecheck` bersih. 89 tests pass.
+
+### 7b. Cron refresh materialized view gagal — endpoint `/jobs/refresh-mv` tidak ada
+
+**Root cause:** Workflow GitHub Actions `.github/workflows/cron-refresh-mv.yml` memanggil `POST https://api.masjidmu.id/jobs/refresh-mv`, tapi endpoint ini **tidak pernah dibuat** di backend. Cron ini sudah gagal terus-menerus sejak awal, menyebabkan materialized view (`mv_account_balances`, `mv_monthly_summary`) basi.
+
+**Fix:**
+- `backend/src/modules/jobs/route.ts` (baru) — Endpoint `/refresh-mv` dengan Bearer token auth via `JOBS_INTERNAL_TOKEN`
+- `backend/src/lib/env.ts` — Tambah `JOBS_INTERNAL_TOKEN` ke env schema (optional)
+- `backend/src/app.ts` — Register route `/api/jobs` sebelum middleware v1 (machine-to-machine, bukan user-facing)
+
+**Verifikasi:** `pnpm typecheck` bersih. Deploy ke produksi diperlukan untuk testing end-to-end.
+
+**Catatan Penting:**
+- `JOBS_INTERNAL_TOKEN` sudah di-generate otomatis oleh Render di `render.yaml`
+- Secret ini **harus juga diset sebagai GitHub Actions secret** di repo (kalau belum)
+- Cron workflow akan mulai jalan setelah deploy ke produksi
+
+**Hasil verifikasi 2026-08-26:**
+- ❌ `JOBS_INTERNAL_TOKEN` **BELUM diset** sebagai GitHub Actions secret — workflow log menunjukkan `Authorization: Bearer ` (kosong)
+- ❌ Workflow URL lama `api.masjidmu.id` **DNS tidak resolve** — sudah diperbaiki ke `masjidmu-backend.onrender.com`
+- ❌ Endpoint `/api/jobs/refresh-mv` **belum di-deploy** ke Render (code baru, belum push/deploy)
+
+**Langkah yang harus dilakukan user:**
+1. Push code ke `main` (termasuk fix workflow URL + jobs route baru)
+2. Deploy ke Render (auto-trigger dari push ke main)
+3. Buka Render Dashboard → service `masjidmu-backend` → Environment → copy nilai `JOBS_INTERNAL_TOKEN`
+4. Buka GitHub Repo → Settings → Secrets and variables → Actions → New repository secret → name: `JOBS_INTERNAL_TOKEN`, value: (paste dari Render)
+5. Trigger workflow manual: `gh workflow run "Cron — Refresh materialized views"` atau tunggu cron berikutnya
 
 ---
 
@@ -216,8 +268,10 @@ Commit: `59c569b`, `bff6ff4`.
 
 ```bash
 # dari masjidmu-v2/
-pnpm --filter @masjidmu/backend dev    # :3001 -- lihat §2 sesi terbaru: kalau gantung, coba `pnpm build && node dist/src/index.js`
-pnpm --filter @masjidmu/frontend dev   # :5173
+pnpm --filter @masjidmu/backend dev        # :3001 — tsx watch + hot-reload (via dev-watch.ts wrapper)
+pnpm --filter @masjidmu/backend dev:stable  # :3001 — tsc + node --watch dist/, hot-reload (paling stabil)
+pnpm --filter @masjidmu/backend build       # compile TS → dist/
+pnpm --filter @masjidmu/frontend dev        # :5173
 pnpm --dir frontend typecheck
 pnpm --dir frontend build
 ```
