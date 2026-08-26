@@ -134,6 +134,7 @@ User minta selector periode dibikin lebih premium secara visual. Diganti dari dr
 - `e4aedc2` `fix(reports): tie monthly breakdown to the "Semua Data" period only`
 - `7578219` `feat(reports): show anonymized transaction list for a specific period`
 - `10c7a47` `feat(reports): redesign period selector as a segmented pill control`
+- `1a43af2` `fix(reports): constrain DatePicker width in the custom period selector` -- regresi dari `10c7a47`: DatePicker butuh wrapper lebar tetap (sama seperti AppSelect), tanpa itu dua DatePicker berebut lebar penuh flex-1 dan malah numpuk vertikal alih-alih sejajar. User yang nemuin lewat screenshot.
 
 Push langsung ke `main` tanpa staging, atas instruksi eksplisit user sesi ini ("langsung push aja selalu biar bisa test") — lihat memory `user-vibe-coder`.
 
