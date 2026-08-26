@@ -138,6 +138,13 @@ async function onGoogleSignIn(): Promise<void> {
               {{ submitting ? 'Memproses…' : 'Masuk' }}
             </Button>
           </form>
+
+          <p class="text-center text-xs text-muted-foreground">
+            Belum punya akun?
+            <router-link to="/register" class="font-medium text-primary hover:underline">
+              Daftar sekarang
+            </router-link>
+          </p>
         </div>
       </CardContent>
     </Card>

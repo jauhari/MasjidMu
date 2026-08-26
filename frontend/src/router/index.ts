@@ -9,6 +9,12 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   {
+    path: '/register',
+    name: 'register',
+    component: () => import('@/features/auth/RegisterView.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/transparansi/pap',
     name: 'public-pap-transparency',
     component: () => import('@/features/public-pap/PublicPapView.vue'),
@@ -111,6 +117,11 @@ const routes: RouteRecordRaw[] = [
         path: 'tenants',
         name: 'tenants',
         component: () => import('@/features/tenants/TenantsView.vue'),
+      },
+      {
+        path: 'team',
+        name: 'team',
+        component: () => import('@/features/team/TeamView.vue'),
       },
       {
         path: 'changelog',

@@ -28,6 +28,8 @@ import { postsRoute } from './modules/content/posts/route.js';
 import { eventsRoute } from './modules/content/events/route.js';
 import { galleriesRoute } from './modules/content/galleries/route.js';
 import { jobsRoute } from './modules/jobs/route.js';
+import { registerRoute } from './modules/core/auth/register.js';
+import { teamRoute } from './modules/core/team/route.js';
 
 const Sentry = initSentry();
 
@@ -106,6 +108,9 @@ app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
   }
 });
 
+// ─── Self-service registration (unauthenticated, rate-limited) ──────────
+app.route('/api/register', registerRoute);
+
 // ─── Public API — read-only, anonymous, explicitly projected ──────────────
 app.route('/api/public/pap', publicPapRoute);
 app.route('/api/public/keuangan', publicFinanceRoute);
@@ -135,6 +140,7 @@ app.route('/api/v1/programs', programsRoute);
 app.route('/api/v1/posts', postsRoute);
 app.route('/api/v1/events', eventsRoute);
 app.route('/api/v1/galleries', galleriesRoute);
+app.route('/api/v1/team', teamRoute);
 
 app.get('/api/v1/me', (c) => {
   const user = c.get('user');

@@ -28,15 +28,11 @@ Sesi ini membangun fitur baru **"Transparansi Keuangan Umum"**: ringkasan keuang
 
 ## 1b. Status Arsitektur: Multi-Tenant vs Multi-User vs Self-Service Signup
 
-User tanya "apakah MizanMu sudah mendukung multi user, jadi setiap orang bisa membuat datanya sendiri?" — pertanyaan ini sebenarnya 3 hal berbeda, dan statusnya BEDA-BEDA untuk masing-masing (diverifikasi langsung dari kode, bukan dari ingatan/dokumentasi lama):
-
-| Lapisan | Status | Bukti di kode |
+| Lapisan | Status | Detail |
 |---|---|---|
-| **Multi-tenant** (isolasi antar lembaga, mis. PCA Ponjong vs lembaga lain) | **✅ Sudah, dan kuat** | Isolasi di-*enforce* di level Postgres pakai Row-Level Security (`db/migrations/sql/010_rls_enable.sql` + `011_rls_policies.sql`, pakai `FORCE ROW LEVEL SECURITY` — bukan cuma filter `WHERE tenant_id=?` di kode yang bisa kelewat kalau ada bug). `db/client.ts` (`withTenant()`) set `app.current_tenant_id` per transaksi; `middleware/tenant.ts` resolve tenant dari subdomain/header. |
-| **Multi-user dalam 1 tenant** (mis. Bendahara + Admin sama-sama akses PCA Ponjong dengan akun masing-masing) | **⚠️ Skema database sudah ada, tapi TIDAK BISA dipakai dari UI** | `db/schema/core.ts` punya `users`/`roles`/`permissions`/`rolePermissions`/`userRoles` lengkap, dan `middleware/permission.ts` sudah bisa enforce-nya — tapi `modules/core/users/route.ts` cuma punya `GET`/`PATCH`, **tidak ada endpoint untuk create/invite user baru**, tidak ada route `roles` yang di-mount di `app.ts` sama sekali, dan tidak ada halaman "Tim"/"Anggota" di frontend manapun (grep `/api/v1/users` & `roles` di `frontend/src` = 0 hasil). `lib/user-mapping.ts` (`resolveActingUser`) sengaja TIDAK auto-provision user baru ke tenant ("would silently grant tenant presence without an explicit invite"). **Kesimpulan**: sekarang nambah orang kedua ke satu lembaga cuma bisa lewat insert manual ke database, bukan dari UI. |
-| **Self-service signup** (orang baru daftar sendiri & otomatis dapat lembaga baru, tanpa admin platform terlibat) | **❌ Tidak ada sama sekali** | `LoginView.vue` cuma ada form Login (Google + email/password), tidak ada link "Daftar". `TenantsView.vue` di-gate `v-if="auth.isSuperAdmin"` — cuma super admin platform yang bisa bikin lembaga baru, lewat halaman internal, bukan alur publik. `POST /api/v1/tenants` butuh permission `tenants.create` (super_admin only). Better-auth `organization` plugin (`lib/auth.ts`) di-set `allowUserToCreateOrganization: false` secara eksplisit. Tidak ada route `signup`/`register`/`onboard` di manapun di backend. |
-
-**Kalau mau lanjutkan salah satu gap ini, user sudah ditanya prioritasnya (belum dijawab per akhir sesi ini)**: fitur "undang anggota tim" ke lembaga yang sudah ada, atau orang bisa daftar sendiri bikin lembaga baru? Keduanya scope-nya cukup besar (yang pertama perlu endpoint invite + email + UI role management; yang kedua perlu alur onboarding publik + verifikasi + rate-limiting/anti-abuse karena bikin tenant baru itu resource nyata).
+| **Multi-tenant** (isolasi antar lembaga) | **✅ Kuat** | RLS enforced di level Postgres. Lihat §1 untuk bukti. |
+| **Multi-user dalam 1 tenant** (Bendahara + Admin di lembaga yang sama) | **✅ BARU (§8a)** | Undang via email, role-based access. `GET/POST/DELETE /api/v1/team`. Halaman Tim di sidebar. |
+| **Self-service signup** (orang baru daftar sendiri + buat lembaga) | **✅ BARU (§8b)** | `POST /api/register` — buat tenant + auth user + admin role + seed COA. Halaman `/register` dengan link dari Login. |
 
 ---
 
@@ -182,6 +178,58 @@ Dua bug kritis diperbaiki dalam sesi ini:
 2. Tambah env var baru: `DATABASE_URL_OWNER` = `postgresql://neondb_owner:npg_rjJf2U5TNBtM@ep-summer-firefly-aob90kp0-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require`
 3. Deploy ulang (Render auto-deploy saat env berubah)
 4. Trigger workflow manual: `gh workflow run "Cron — Refresh materialized views"`
+
+## 8. Fitur Baru: Manajemen Tim + Self-Service Signup (2026-08-26)
+
+Dua gap terakhir dari arsitektur multi-tenant kini terisi:
+
+### 8a. Manajemen Tim (Undang Anggota)
+
+**Masalah:** Multi-user dalam 1 lembaga — skema DB ada (tabel `users`, `roles`, `permissions`) tapi tidak ada UI atau API untuk mengundang anggota tim.
+
+**Solusi:**
+
+| Layer | File | Fungsi |
+|-------|------|--------|
+| Backend | `backend/src/modules/core/team/route.ts` | `GET /api/v1/team` (list), `POST /api/v1/team/invite` (undang), `DELETE /api/v1/team/:id` (hapus) |
+| Frontend | `frontend/src/features/team/TeamView.vue` | Halaman Tim — daftar anggota, form undang, konfirmasi hapus |
+| Router | `frontend/src/router/index.ts` | Route `/team` |
+| Sidebar | `frontend/src/app/AppShell.vue` | Menu "Tim" di bagian "Tim & Lembaga" (visible untuk user dengan `users.read`) |
+
+**Alur undangan:**
+1. Admin masuk halaman Tim → klik "Undang Anggota" → masukkan email
+2. Backend buat row `users` dengan `status: 'invited'`
+3. Orang yang diundang buka `/register` → daftar dengan email yang sama
+4. Saat login pertama, `syncUserAuthId` otomatis link auth account ke row `users` yang sudah ada
+5. Mereka langsung bisa akses lembaga
+
+**Permission:** `users.create` untuk undang, `users.read` untuk lihat, `users.delete` untuk hapus
+
+### 8b. Self-Service Signup
+
+**Masalah:** Tidak ada halaman daftar — membuat lembaga baru hanya bisa lewat super admin.
+
+**Solusi:**
+
+| Layer | File | Fungsi |
+|-------|------|--------|
+| Backend | `backend/src/modules/core/auth/register.ts` | `POST /api/register` — buat tenant + auth user + admin role + seed COA |
+| Frontend | `frontend/src/features/auth/RegisterView.vue` | Form pendaftaran (nama, email, password, nama lembaga, edisi) |
+| Router | `frontend/src/router/index.ts` | Route `/register` (public) |
+| Login | `frontend/src/features/auth/LoginView.vue` | Link "Daftar sekarang" di bawah tombol Masuk |
+
+**Alur signup:**
+1. User buka `/register` → isi form (nama, email, password, nama lembaga, edisi)
+2. Backend: buat tenant (slug auto dari nama) → seed COA + dana → sign up via better-auth → buat row `users` → buat role `admin` + `bendahara` → grant admin ke user
+3. Session cookie di-set → redirect ke dashboard
+
+**Ringkasan Status Arsitektur (update dari §1b):**
+
+| Area | Status |
+|------|--------|
+| Multi-tenant (antar lembaga) | ✅ Kuat — RLS enforced |
+| Multi-user dalam 1 lembaga | ✅ **BARU** — undang via email, role-based |
+| Self-service signup | ✅ **BARU** — daftar + buat lembaga sendiri |
 
 ---
 

@@ -25,6 +25,7 @@ import {
   ScrollText,
   LayoutGrid,
   User,
+  Users,
 } from 'lucide-vue-next';
 import {
   DropdownMenu,
@@ -124,6 +125,10 @@ const otherItems: NavItem[] = [
 ];
 
 const adminItems: NavItem[] = [
+  { to: '/team', label: 'Tim', icon: Users },
+];
+
+const superAdminItems: NavItem[] = [
   { to: '/tenants', label: 'Lembaga', icon: Building2 },
 ];
 
@@ -254,12 +259,20 @@ async function onSignOut(): Promise<void> {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup v-if="auth.isSuperAdmin">
-          <SidebarGroupLabel>Admin</SidebarGroupLabel>
+        <SidebarGroup v-if="auth.hasPermission('users.read')">
+          <SidebarGroupLabel>Tim & Lembaga</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem v-for="item in adminItems" :key="item.to">
                 <SidebarMenuButton as-child :is-active="isActive(item.to)" :tooltip="item.label">
+                  <RouterLink :to="item.to">
+                    <component :is="item.icon" />
+                    <span>{{ item.label }}</span>
+                  </RouterLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem v-for="item in superAdminItems" :key="item.to">
+                <SidebarMenuButton v-if="auth.isSuperAdmin" as-child :is-active="isActive(item.to)" :tooltip="item.label">
                   <RouterLink :to="item.to">
                     <component :is="item.icon" />
                     <span>{{ item.label }}</span>
