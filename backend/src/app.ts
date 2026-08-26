@@ -27,6 +27,7 @@ import { programsRoute } from './modules/content/programs/route.js';
 import { postsRoute } from './modules/content/posts/route.js';
 import { eventsRoute } from './modules/content/events/route.js';
 import { galleriesRoute } from './modules/content/galleries/route.js';
+import { jobsRoute } from './modules/jobs/route.js';
 
 const Sentry = initSentry();
 
@@ -108,6 +109,9 @@ app.on(['POST', 'GET'], '/api/auth/*', async (c) => {
 // ─── Public API — read-only, anonymous, explicitly projected ──────────────
 app.route('/api/public/pap', publicPapRoute);
 app.route('/api/public/keuangan', publicFinanceRoute);
+
+// ─── Internal jobs — machine-to-machine, bearer-token auth ──────────────
+app.route('/api/jobs', jobsRoute);
 
 // ─── App API (v1) — full middleware stack ────────────────────────────────
 app.use('/api/v1/*', sessionResolver());
