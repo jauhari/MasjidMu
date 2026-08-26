@@ -278,7 +278,7 @@ onMounted(() => { void load(); });
           </Card>
         </div>
 
-        <Card v-if="trendByYear.length">
+        <Card v-if="periodMode === 'all' && trendByYear.length">
           <CardContent class="space-y-6 p-4 sm:p-5">
             <h2 class="text-sm font-bold text-foreground">Rincian Bulanan</h2>
 

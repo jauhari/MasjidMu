@@ -40,8 +40,9 @@ export const publicFinanceRoute = new Hono<{ Variables: TenantVars }>()
       return c.json({ error: 'invalid_format' }, 400, noStoreHeaders());
     }
 
+    const isAllTime = c.req.query('period') === 'all';
     let period: ReportPeriod;
-    if (c.req.query('period') === 'all') {
+    if (isAllTime) {
       period = allTimePeriod();
     } else {
       try {
@@ -64,7 +65,7 @@ export const publicFinanceRoute = new Hono<{ Variables: TenantVars }>()
       if (format === 'image') {
         const tenantSlug = c.req.query('tenant_slug') ?? '';
         const publicUrl = `https://mizanmu.pages.dev/transparansi/${tenantSlug}`;
-        const png = await renderPublicFinanceImage(report, publicUrl);
+        const png = await renderPublicFinanceImage(report, publicUrl, isAllTime);
         return c.body(png as never, {
           headers: noStoreHeaders({
             'Content-Type': 'image/png',

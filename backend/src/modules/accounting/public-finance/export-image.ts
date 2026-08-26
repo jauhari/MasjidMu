@@ -94,7 +94,11 @@ function trendTableHtml(trend: PublicFinanceReportResponse['data']['monthlyTrend
   </div>`;
 }
 
-export function renderPublicFinanceHtml(report: PublicFinanceReportResponse, publicUrl: string): string {
+export function renderPublicFinanceHtml(
+  report: PublicFinanceReportResponse,
+  publicUrl: string,
+  includeTrend: boolean,
+): string {
   const hasIncome = report.data.topIncome.length > 0;
   const hasExpense = report.data.topExpense.length > 0;
   return `<!doctype html>
@@ -211,7 +215,7 @@ export function renderPublicFinanceHtml(report: PublicFinanceReportResponse, pub
         </div>
       </div>
 
-      ${trendTableHtml(report.data.monthlyTrend)}
+      ${includeTrend ? trendTableHtml(report.data.monthlyTrend) : ''}
     </div>
 
     <div class="footer">
@@ -226,7 +230,8 @@ export function renderPublicFinanceHtml(report: PublicFinanceReportResponse, pub
 export async function renderPublicFinanceImage(
   report: PublicFinanceReportResponse,
   publicUrl: string,
+  includeTrend: boolean,
 ): Promise<Buffer> {
-  const html = renderPublicFinanceHtml(report, publicUrl);
+  const html = renderPublicFinanceHtml(report, publicUrl, includeTrend);
   return renderPngFromHtml(html, CARD_WIDTH);
 }
