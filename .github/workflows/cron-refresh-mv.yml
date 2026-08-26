@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Call refresh endpoint
         run: |
-          curl -fsS -X POST "https://masjidmu-backend.onrender.com/jobs/refresh-mv" \
+          curl -fsS -X POST "https://masjidmu-backend.onrender.com/api/jobs/refresh-mv" \
             -H "Authorization: Bearer ${{ secrets.JOBS_INTERNAL_TOKEN }}" \
             -H "content-type: application/json" \
             --max-time 60
