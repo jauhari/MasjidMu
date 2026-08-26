@@ -88,6 +88,14 @@ User kirim contoh Laporan Posisi Keuangan formal (format PSAK, tabel bersih deng
 
 ---
 
+## 4d. Iterasi Lanjutan #4 — Rincian Bulanan harus ikut period picker
+
+User perhatikan: halaman publik ganti angka ringkasan sesuai periode yang dipilih, tapi tabel "Rincian Bulanan" (§4c) selalu tampil PENUH 4 tahun terlepas dari periode yang dipilih — tidak konsisten, kesannya halaman "tidak benar-benar dinamis". Diperbaiki (commit `e4aedc2`): tabel itu sekarang cuma muncul kalau `periodMode === 'all'` ("Semua Data") — baik di halaman publik (`v-if`) maupun gambar share (`includeTrend` boolean baru, diteruskan dari `route.ts` berdasar query `period=all` atau bukan). Backend tetap selalu HITUNG `monthlyTrend` (query murah, tidak worth nambah percabangan) — cuma soal DITAMPILKAN atau tidak.
+
+**Verifikasi kena gejala service-worker-cache LAGI** (3× dalam sesi ini) — kali ini bahkan tab browser yang "baru" (via `preview_start` ulang) masih kena. Solusi yang akhirnya kerja: eksekusi JS langsung di tab untuk `navigator.serviceWorker.getRegistrations()` → `.unregister()` tiap satu + `caches.keys()` → `caches.delete()` tiap satu, baru `navigate` ulang. **Simpan cara ini untuk sesi depan** — jangan cuma andalkan tab baru, service worker MizanMu ternyata cukup persisten lintas tab dalam satu browser context.
+
+---
+
 ## 4. Commit Sesi Ini (`main`, sudah dipush & live)
 
 - `1c18292` `docs: add design spec for Transparansi Keuangan Umum`
@@ -104,6 +112,7 @@ User kirim contoh Laporan Posisi Keuangan formal (format PSAK, tabel bersih deng
 - `85ef7b9` `fix(reports): gap-fill trailing months in share-card trend chart`
 - `9b14880` `fix(reports): replace monthly trend bar chart with a table`
 - `b3679a9` `fix(reports): show every month in trend tables, not just active ones`
+- `e4aedc2` `fix(reports): tie monthly breakdown to the "Semua Data" period only`
 
 Push langsung ke `main` tanpa staging, atas instruksi eksplisit user sesi ini ("langsung push aja selalu biar bisa test") — lihat memory `user-vibe-coder`.
 
