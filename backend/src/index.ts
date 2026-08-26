@@ -17,6 +17,9 @@ function listen(attempt = 1): void {
   const maxAttempts = 8;
   const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
     logger.info(`HisabMu API listening on http://localhost:${info.port}`);
+    if (!env.DATABASE_URL_OWNER) {
+      logger.warn('DATABASE_URL_OWNER not set — DDL ops (REFRESH MATERIALIZED VIEW) will use app role (may fail)');
+    }
   });
 
   server.on('error', (err: NodeJS.ErrnoException) => {

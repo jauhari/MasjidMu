@@ -41,7 +41,6 @@ jobsRoute.post('/refresh-mv', async (c) => {
     return c.json({ ok: true, ...result });
   } catch (err) {
     logger.error({ err }, 'mat-view refresh via jobs endpoint failed');
-    const message = err instanceof Error ? err.message : String(err);
-    return c.json({ error: 'refresh_failed', detail: message }, 500);
+    return c.json({ error: 'refresh_failed' }, 500);
   }
 });
