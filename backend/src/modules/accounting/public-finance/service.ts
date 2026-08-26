@@ -7,6 +7,7 @@ import { memClearPrefix, memGet, memSet } from '../../../lib/memory-cache.js';
 import { buildCashFlow } from '../reports/services/cash-flow.js';
 import { buildTopCategories } from '../reports/services/category-breakdown.js';
 import { buildMonthlyTrend } from '../reports/services/monthly-trend.js';
+import { buildMovements } from '../reports/services/movements.js';
 import type { ReportPeriod } from '../reports/types.js';
 import type { PublicFinanceReportResponse } from './types.js';
 
@@ -131,7 +132,7 @@ export async function buildPublicFinanceReport(args: {
   const cached = memGet<PublicFinanceReportResponse>(cacheKey);
   if (cached) return cached;
 
-  const [tenantIdentity, profile, cashFlow, categories, monthlyTrend] = await Promise.all([
+  const [tenantIdentity, profile, cashFlow, categories, monthlyTrend, movements] = await Promise.all([
     asSuperAdmin(async (tx) => {
       const [row] = await tx
         .select({ name: tenants.name, shortName: tenants.shortName })
@@ -154,6 +155,7 @@ export async function buildPublicFinanceReport(args: {
     buildCashFlow({ tenantId, period }),
     buildTopCategories({ tenantId, period }),
     buildMonthlyTrend({ tenantId }),
+    buildMovements({ tenantId, period }),
   ]);
 
   const response: PublicFinanceReportResponse = {
@@ -172,6 +174,7 @@ export async function buildPublicFinanceReport(args: {
       topIncome: categories.income,
       topExpense: categories.expense,
       monthlyTrend,
+      movements,
     },
   };
   memSet(cacheKey, response, CACHE_TTL_SEC);

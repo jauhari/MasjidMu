@@ -1,6 +1,7 @@
 import type { ReportPeriod } from '../reports/types.js';
 import type { CategoryAmount } from '../reports/services/category-breakdown.js';
 import type { MonthlyAmount } from '../reports/services/monthly-trend.js';
+import type { PublicMovement } from '../reports/services/movements.js';
 
 export interface PublicFinanceReportResponse {
   reportType: 'finance-transparency';
@@ -20,5 +21,6 @@ export interface PublicFinanceReportResponse {
     topIncome: CategoryAmount[];
     topExpense: CategoryAmount[];
     monthlyTrend: MonthlyAmount[];
+    movements: PublicMovement[];
   };
 }

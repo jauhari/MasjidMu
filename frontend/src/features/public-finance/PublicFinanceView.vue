@@ -25,6 +25,13 @@ interface MonthlyAmount {
   expense: string;
 }
 
+interface PublicMovement {
+  date: string;
+  direction: 'income' | 'expense';
+  label: string;
+  amount: string;
+}
+
 interface PublicFinanceReport {
   reportType: 'finance-transparency';
   mosque: { name: string; shortName: string | null; logoUrl: string | null; bannerUrl: string | null };
@@ -36,6 +43,7 @@ interface PublicFinanceReport {
     topIncome: CategoryAmount[];
     topExpense: CategoryAmount[];
     monthlyTrend: MonthlyAmount[];
+    movements: PublicMovement[];
   };
 }
 
@@ -109,6 +117,12 @@ function buildPublicUrl(format?: 'image'): string {
 }
 
 const imageUrl = computed(() => buildPublicUrl('image'));
+
+function formatDate(value: string): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value.slice(0, 10);
+  return new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }).format(d);
+}
 
 /** Tabel per tahun, terbaru dulu -- semua 12 bulan ditampilkan (bulan
  * tanpa transaksi = baris nol, bukan disembunyikan) supaya tidak ada
@@ -277,6 +291,38 @@ onMounted(() => { void load(); });
             </CardContent>
           </Card>
         </div>
+
+        <Card v-if="periodMode !== 'all'">
+          <CardContent class="space-y-4 p-4 sm:p-5">
+            <div class="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+              <h2 class="text-sm font-bold text-foreground">Mutasi Transaksi</h2>
+              <p class="text-xs text-muted-foreground">{{ report.period.label }}</p>
+            </div>
+            <div class="overflow-x-auto">
+              <Table>
+                <thead>
+                  <tr class="border-b border-border bg-muted/50">
+                    <th class="rounded-l-lg px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tanggal</th>
+                    <th class="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Kategori</th>
+                    <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Masuk</th>
+                    <th class="rounded-r-lg px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Keluar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!report.data.movements.length">
+                    <td colspan="4" class="px-3 py-10 text-center text-sm text-muted-foreground">Belum ada transaksi pada periode ini.</td>
+                  </tr>
+                  <tr v-for="(m, i) in report.data.movements" :key="i" class="border-b border-border/60" :class="i % 2 === 1 ? 'bg-muted/20' : ''">
+                    <td class="px-3 py-2 text-sm tabular-nums text-muted-foreground">{{ formatDate(m.date) }}</td>
+                    <td class="px-3 py-2 text-sm text-foreground">{{ m.label }}</td>
+                    <td class="px-3 py-2 text-right text-sm"><MoneyText v-if="m.direction === 'income'" :value="m.amount" tone="income" /><span v-else class="text-muted-foreground">&mdash;</span></td>
+                    <td class="px-3 py-2 text-right text-sm"><MoneyText v-if="m.direction === 'expense'" :value="m.amount" tone="expense" /><span v-else class="text-muted-foreground">&mdash;</span></td>
+                  </tr>
+                </tbody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card v-if="periodMode === 'all' && trendByYear.length">
           <CardContent class="space-y-6 p-4 sm:p-5">
