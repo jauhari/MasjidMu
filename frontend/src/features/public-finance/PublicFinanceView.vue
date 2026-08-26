@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { Download, ImageDown, ShieldCheck, TrendingDown, TrendingUp, Wallet } from 'lucide-vue-next';
+import { CalendarDays, ImageDown, ShieldCheck, TrendingDown, TrendingUp, Wallet } from 'lucide-vue-next';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -64,7 +64,7 @@ const year = ref(now.getFullYear());
 const dateFrom = ref<string | null>(null);
 const dateTo = ref<string | null>(null);
 
-const periodModeOptions = [
+const periodModeOptions: { value: 'monthly' | 'custom' | 'all'; label: string }[] = [
   { value: 'monthly', label: 'Per Bulan' },
   { value: 'custom', label: 'Custom' },
   { value: 'all', label: 'Semua Data' },
@@ -212,19 +212,38 @@ onMounted(() => { void load(); });
         </div>
       </header>
 
-      <Card>
-        <CardContent class="flex flex-wrap items-center gap-2.5 px-4 py-3">
-          <span class="hidden shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground sm:flex"><Download class="size-4" /> Periode</span>
-          <div class="w-full max-w-[120px]"><AppSelect v-model="periodMode" :options="periodModeOptions" /></div>
-          <template v-if="periodMode === 'monthly'">
-            <div class="w-full max-w-[150px]"><AppSelect v-model="monthStr" :options="monthOptions" /></div>
-            <div class="w-full max-w-[100px]"><AppSelect v-model="yearStr" :options="yearOptions" /></div>
-          </template>
-          <template v-else-if="periodMode === 'custom'">
-            <DatePicker v-model="dateFrom" placeholder="Dari tgl" />
-            <span class="text-xs text-muted-foreground">s/d</span>
-            <DatePicker v-model="dateTo" placeholder="Sampai tgl" />
-          </template>
+      <Card class="overflow-visible">
+        <CardContent class="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:gap-4 sm:px-6">
+          <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
+            <CalendarDays class="size-5" />
+          </span>
+
+          <div class="inline-flex items-center gap-1 rounded-full bg-muted/70 p-1">
+            <button
+              v-for="opt in periodModeOptions"
+              :key="opt.value"
+              type="button"
+              class="rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors duration-150 sm:px-4 sm:text-sm"
+              :class="periodMode === opt.value
+                ? 'bg-white text-emerald-700 shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'"
+              @click="periodMode = opt.value"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+
+          <div class="flex flex-1 flex-wrap items-center gap-2 sm:justify-end">
+            <template v-if="periodMode === 'monthly'">
+              <div class="w-[140px]"><AppSelect v-model="monthStr" :options="monthOptions" /></div>
+              <div class="w-[95px]"><AppSelect v-model="yearStr" :options="yearOptions" /></div>
+            </template>
+            <template v-else-if="periodMode === 'custom'">
+              <DatePicker v-model="dateFrom" placeholder="Dari tgl" />
+              <span class="text-xs text-muted-foreground">s/d</span>
+              <DatePicker v-model="dateTo" placeholder="Sampai tgl" />
+            </template>
+          </div>
         </CardContent>
       </Card>
 
