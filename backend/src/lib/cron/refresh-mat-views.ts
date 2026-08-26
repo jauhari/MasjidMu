@@ -13,7 +13,7 @@
  */
 import cron from 'node-cron';
 import { sql } from 'drizzle-orm';
-import { asSuperAdmin } from '../../db/client.js';
+import { asOwner } from '../../db/client.js';
 import { redis } from '../redis.js';
 import { logger } from '../logger.js';
 
@@ -21,7 +21,7 @@ const SCHEDULE = '*/17 * * * *';
 
 async function refreshOnce(): Promise<{ durationMs: number; cacheKeysDeleted: number }> {
   const start = Date.now();
-  await asSuperAdmin(async (tx) => {
+  await asOwner(async (tx) => {
     // CONCURRENTLY butuh unique index (ada di 050). Fallback non-concurrent
     // jika concurrent gagal (mis. view kosong pertama kali / lock).
     try {

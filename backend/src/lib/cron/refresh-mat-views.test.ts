@@ -23,7 +23,7 @@ vi.mock('../env.js', () => ({
 }));
 
 vi.mock('../../db/client.js', () => ({
-  asSuperAdmin: vi.fn().mockImplementation(async (fn: Function) => {
+  asOwner: vi.fn().mockImplementation(async (fn: Function) => {
     return fn({ execute: mockExecute });
   }),
 }));
@@ -61,7 +61,7 @@ import {
   startMatViewRefreshCron,
   stopMatViewRefreshCron,
 } from './refresh-mat-views.js';
-import { asSuperAdmin } from '../../db/client.js';
+import { asOwner } from '../../db/client.js';
 
 // Helper: extract the SQL string from a drizzle sql`` template passed to execute
 function getSqlString(callIndex: number): string {
@@ -84,7 +84,7 @@ describe('refreshOnce', () => {
   it('refreshes both materialized views CONCURRENTLY', async () => {
     const result = await refreshOnce();
 
-    expect(asSuperAdmin).toHaveBeenCalledOnce();
+    expect(asOwner).toHaveBeenCalledOnce();
     expect(mockExecute).toHaveBeenCalledTimes(2);
     expect(getSqlString(0)).toContain('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_account_balances');
     expect(getSqlString(1)).toContain('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_monthly_summary');
@@ -176,7 +176,7 @@ describe('refreshReportsAfterPosting', () => {
 
     await refreshReportsAfterPosting();
 
-    expect(asSuperAdmin).toHaveBeenCalledOnce();
+    expect(asOwner).toHaveBeenCalledOnce();
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({ durationMs: expect.any(Number), cacheKeysDeleted: expect.any(Number) }),
       'mat-view refresh after posting',
@@ -185,7 +185,7 @@ describe('refreshReportsAfterPosting', () => {
 
   it('swallows errors and logs error (does not throw)', async () => {
     const { logger } = await import('../logger.js');
-    vi.mocked(asSuperAdmin).mockRejectedValueOnce(new Error('db down'));
+    vi.mocked(asOwner).mockRejectedValueOnce(new Error('db down'));
 
     await expect(refreshReportsAfterPosting()).resolves.toBeUndefined();
     expect(logger.error).toHaveBeenCalledWith(
@@ -241,7 +241,7 @@ describe('startMatViewRefreshCron', () => {
 
     await cronFn!();
 
-    expect(asSuperAdmin).toHaveBeenCalledOnce();
+    expect(asOwner).toHaveBeenCalledOnce();
   });
 
   it('logs error when cron callback throws', async () => {
@@ -251,7 +251,7 @@ describe('startMatViewRefreshCron', () => {
       cronFn = fn;
       return { stop: mockStop };
     });
-    vi.mocked(asSuperAdmin).mockRejectedValueOnce(new Error('db timeout'));
+    vi.mocked(asOwner).mockRejectedValueOnce(new Error('db timeout'));
 
     startMatViewRefreshCron();
     await cronFn!();

@@ -26,6 +26,10 @@ services:
       # ── Isi manual di dashboard (secret / spesifik-environment) ──
       - key: DATABASE_URL
         sync: false
+      # Owner-level URL for DDL ops (REFRESH MATERIALIZED VIEW, etc.).
+      # Uses neondb_owner role which has superuser-like privileges.
+      - key: DATABASE_URL_OWNER
+        sync: false
       - key: BETTER_AUTH_URL
         sync: false
       - key: UPSTASH_REDIS_URL

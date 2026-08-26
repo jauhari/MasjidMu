@@ -60,4 +60,31 @@ export async function asSuperAdmin<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
   });
 }
 
+// ─── Owner-level pool for DDL operations ─────────────────────────────────────
+// REFRESH MATERIALIZED VIEW, CREATE INDEX, ALTER TABLE, etc. require
+// superuser or object-owner privileges. The regular `db` pool uses
+// DATABASE_URL (the app role, NOBYPASSRLS) which lacks these perms.
+// DATABASE_URL_OWNER is optional — when absent we fall back to DATABASE_URL.
+const ownerPool = new Pool({
+  connectionString: env.DATABASE_URL_OWNER ?? env.DATABASE_URL,
+  max: 2,
+  ssl:
+    env.NODE_ENV === 'production' ||
+    (env.DATABASE_URL_OWNER ?? env.DATABASE_URL).includes('sslmode=require') ||
+    (env.DATABASE_URL_OWNER ?? env.DATABASE_URL).includes('neon.tech')
+      ? { rejectUnauthorized: false }
+      : false,
+});
+
+const ownerDb = drizzle(ownerPool, { schema, casing: 'snake_case' });
+
+/**
+ * Run a function within a transaction using the owner-level connection.
+ * Use for DDL (REFRESH MATERIALIZED VIEW, etc.) that requires
+ * superuser or object-owner privileges.
+ */
+export async function asOwner<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return ownerDb.transaction(fn);
+}
+
 export { pool };
