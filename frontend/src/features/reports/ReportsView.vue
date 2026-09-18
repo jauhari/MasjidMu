@@ -64,8 +64,6 @@ const REPORTS: { value: ReportType; label: string }[] = [
   { value: 'jurnal-umum', label: 'Jurnal Umum' },
 ];
 
-const reportOptions = REPORTS.map((r) => ({ value: r.value, label: r.label }));
-
 const periodModeOptions = [
   { value: 'monthly', label: 'Per Bulan' },
   { value: 'custom', label: 'Custom' },
@@ -83,6 +81,18 @@ const dateFrom = ref<string | null>(null);
 const dateTo = ref<string | null>(null);
 const fundId = ref<string>('');
 const fundOptions = ref<{ value: string; label: string }[]>([]);
+
+const hasFunds = computed(() => fundOptions.value.length > 0);
+const DANA_REPORTS = new Set<ReportType>([
+  'sumber-penggunaan-dana',
+  'buku-dana',
+  'konsolidasi-dana',
+]);
+const reportOptions = computed(() =>
+  REPORTS
+    .filter((r) => hasFunds.value || !DANA_REPORTS.has(r.value))
+    .map((r) => ({ value: r.value, label: r.label })),
+);
 const publicPapFundId = ref('');
 const publicPapStatus = ref<PublicPapStatus | null>(null);
 const publicPapLoading = ref(false);
@@ -541,7 +551,7 @@ watch(
       </CardContent>
     </Card>
 
-    <Card v-if="canPublishReports">
+    <Card v-if="canPublishReports && (hasFunds || publicPapStatus?.isPublished)">
       <CardContent class="space-y-3 px-4 py-4">
         <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>

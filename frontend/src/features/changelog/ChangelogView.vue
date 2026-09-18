@@ -30,6 +30,14 @@ const typeBadge: Record<ChangeEntry['type'], { icon: unknown; label: string; cls
 const entries: ChangeEntry[] = [
   {
     date: '2026-09-18',
+    type: 'ui',
+    title: 'Sembunyikan Opsi & Kartu Dana PAP untuk Lembaga Non-Dana',
+    description:
+      'Kartu Transparansi Dana PAP serta pilihan laporan berbasis dana (Sumber & Penggunaan Dana, Buku Dana, Konsolidasi) kini otomatis disembunyikan untuk lembaga yang tidak mengelola Dana PSAK 109 (seperti yayasan/PCA), sehingga tampilan laporan lebih bersih dan relevan.',
+    files: ['features/reports/ReportsView.vue'],
+  },
+  {
+    date: '2026-09-18',
     type: 'fix',
     title: 'Perbaikan Kompatibilitas Tombol Hapus Tim',
     description:
