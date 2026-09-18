@@ -281,7 +281,7 @@ onMounted(() => {
             <div class="mt-4 flex justify-end gap-2">
               <Button variant="secondary" @click="removeTarget = null">Batal</Button>
               <Button
-                variant="destructive"
+                variant="danger"
                 :loading="removeSaving"
                 @click="doRemove"
               >
