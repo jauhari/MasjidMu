@@ -78,7 +78,7 @@ export const publicFinanceRoute = new Hono<{ Variables: TenantVars }>()
       if (format === 'pdf') {
         const tenantSlug = c.req.query('tenant_slug') ?? '';
         const publicUrl = `https://mizanmu.pages.dev/transparansi/${tenantSlug}`;
-        const pdf = await renderPublicFinancePdf(report, publicUrl, isAllTime);
+        const pdf = await renderPublicFinancePdf(report, publicUrl, isAllTime, tenantSlug);
         const safeLabel = period.label.replace(/[^a-zA-Z0-9-_]/g, '_');
         return c.body(pdf as never, {
           headers: noStoreHeaders({

@@ -25,6 +25,7 @@ export function renderPublicFinancePdfHtml(
   report: PublicFinanceReportResponse,
   publicUrl: string,
   isAllTime: boolean,
+  tenantSlug: string = '',
 ): string {
   const mosqueName = report.mosque.name || 'Lembaga';
   const periodLabel = report.period.label || 'Seluruh Waktu';
@@ -33,6 +34,14 @@ export function renderPublicFinancePdfHtml(
     month: 'long',
     year: 'numeric',
   });
+
+  const isPcaPonjong =
+    tenantSlug === 'pca-ponjong' ||
+    mosqueName.toLowerCase().includes('pca ponjong') ||
+    mosqueName.toLowerCase().includes('aisyiyah cabang ponjong');
+
+  const leaderName = isPcaPonjong ? 'Umi Fadhilah' : '( &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; )';
+  const treasurerName = isPcaPonjong ? 'Iva Fitria' : '( &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; )';
 
   const trend = report.data.monthlyTrend ?? [];
   const byMonth = new Map(trend.map((m) => [m.month, m]));
@@ -471,11 +480,11 @@ export function renderPublicFinancePdfHtml(
       <tr>
         <td class="sig-box">
           <div class="sig-role">Mengetahui,<br>Pimpinan / Ketua</div>
-          <div class="sig-name">( &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; )</div>
+          <div class="sig-name">${leaderName}</div>
         </td>
         <td class="sig-box">
           <div class="sig-role">Pengelola Keuangan,<br>Bendahara</div>
-          <div class="sig-name">( &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; )</div>
+          <div class="sig-name">${treasurerName}</div>
         </td>
       </tr>
     </table>
@@ -493,7 +502,8 @@ export async function renderPublicFinancePdf(
   report: PublicFinanceReportResponse,
   publicUrl: string,
   isAllTime: boolean,
+  tenantSlug: string = '',
 ): Promise<Buffer> {
-  const html = renderPublicFinancePdfHtml(report, publicUrl, isAllTime);
+  const html = renderPublicFinancePdfHtml(report, publicUrl, isAllTime, tenantSlug);
   return renderPdfFromHtml(html);
 }

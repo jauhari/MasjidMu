@@ -30,6 +30,18 @@ const typeBadge: Record<ChangeEntry['type'], { icon: unknown; label: string; cls
 const entries: ChangeEntry[] = [
   {
     date: '2026-09-18',
+    type: 'ui',
+    title: 'Pengesahan Pejabat Resmi pada Laporan Keuangan PCA Ponjong',
+    description:
+      'Menetapkan dan menampilkan nama pejabat resmi (Ketua: Umi Fadhilah, Bendahara: Iva Fitria) pada lembar tanda tangan pengesahan berkas cetak dan PDF Laporan Transparansi Keuangan.',
+    files: [
+      'features/public-finance/PublicFinanceView.vue',
+      'modules/accounting/public-finance/export-pdf.ts',
+      'modules/accounting/public-finance/route.ts',
+    ],
+  },
+  {
+    date: '2026-09-18',
     type: 'feature',
     title: 'Model Cetak & PDF Laporan Transparansi Keuangan Profesional',
     description:

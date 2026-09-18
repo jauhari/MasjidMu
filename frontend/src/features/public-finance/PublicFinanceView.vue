@@ -131,6 +131,18 @@ const printDate = computed(() =>
   }),
 );
 
+const leaderName = computed(() => {
+  const slug = tenantSlugForDev();
+  if (slug === 'pca-ponjong') return 'Umi Fadhilah';
+  return '( ................................ )';
+});
+
+const treasurerName = computed(() => {
+  const slug = tenantSlugForDev();
+  if (slug === 'pca-ponjong') return 'Iva Fitria';
+  return '( ................................ )';
+});
+
 function formatDate(value: string): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value.slice(0, 10);
@@ -431,11 +443,11 @@ onMounted(() => { void load(); });
           <div class="flex justify-between text-center text-xs">
             <div class="w-1/3">
               <p class="mb-16 font-bold">Mengetahui,<br>Pimpinan / Ketua Lembaga</p>
-              <p class="font-bold underline">( &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; )</p>
+              <p class="font-bold underline">{{ leaderName }}</p>
             </div>
             <div class="w-1/3">
               <p class="mb-16 font-bold">Pengelola Keuangan,<br>Bendahara</p>
-              <p class="font-bold underline">( &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; )</p>
+              <p class="font-bold underline">{{ treasurerName }}</p>
             </div>
           </div>
           <div class="mt-8 flex justify-between border-t border-gray-400 pt-2 text-[10px] text-gray-500">
