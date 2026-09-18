@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { CalendarDays, ImageDown, ShieldCheck, TrendingDown, TrendingUp, Wallet } from 'lucide-vue-next';
+import { CalendarDays, FileDown, ImageDown, Printer, ShieldCheck, TrendingDown, TrendingUp, Wallet } from 'lucide-vue-next';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -99,7 +99,7 @@ function tenantSlugForDev(): string | null {
   return null;
 }
 
-function buildPublicUrl(format?: 'image'): string {
+function buildPublicUrl(format?: 'image' | 'pdf'): string {
   const params = new URLSearchParams();
   if (periodMode.value === 'all') {
     params.set('period', 'all');
@@ -117,6 +117,19 @@ function buildPublicUrl(format?: 'image'): string {
 }
 
 const imageUrl = computed(() => buildPublicUrl('image'));
+const pdfUrl = computed(() => buildPublicUrl('pdf'));
+
+function printReport(): void {
+  window.print();
+}
+
+const printDate = computed(() =>
+  new Date().toLocaleDateString('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }),
+);
 
 function formatDate(value: string): string {
   const d = new Date(value);
@@ -194,7 +207,24 @@ onMounted(() => { void load(); });
 <template>
   <main class="min-h-svh bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.10),transparent_32rem),linear-gradient(180deg,#f8fbf9_0%,#eef4ef_100%)] px-4 py-6 text-foreground sm:px-6 lg:px-8">
     <div class="mx-auto max-w-4xl space-y-5">
-      <header class="overflow-hidden rounded-3xl border bg-card shadow-sm">
+      <!-- KOP SURAT RESMI (HANYA MUNCUL SAAT PRINT) -->
+      <div v-if="report" class="print-only mb-6 text-center">
+        <div class="text-xl font-bold uppercase tracking-wider text-black">
+          {{ report.mosque.name || 'Lembaga' }}
+        </div>
+        <p class="text-xs uppercase tracking-widest text-gray-600">
+          Sistem Tata Kelola &amp; Laporan Transparansi Keuangan Terpadu
+        </p>
+        <div class="my-3 border-b-2 border-t border-black pb-0.5" />
+        <h2 class="text-base font-extrabold uppercase tracking-wide underline">
+          Laporan Transparansi Keuangan
+        </h2>
+        <p class="text-xs text-gray-700 italic">
+          Periode: {{ report.period.label }} &middot; Ditetapkan pada: {{ printDate }}
+        </p>
+      </div>
+
+      <header class="overflow-hidden rounded-3xl border bg-card shadow-sm no-print">
         <div v-if="report?.mosque.bannerUrl" class="h-32 bg-cover bg-center" :style="{ backgroundImage: `url(${report.mosque.bannerUrl})` }" />
         <div class="flex flex-col gap-4 px-5 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-7">
           <div class="flex items-center gap-4">
@@ -206,13 +236,25 @@ onMounted(() => { void load(); });
               <p class="mt-1 text-sm text-muted-foreground">{{ report?.period.label || 'Ringkasan publik keuangan lembaga' }}</p>
             </div>
           </div>
-          <a v-if="report" :href="imageUrl" target="_blank" rel="noopener">
-            <Button variant="secondary"><ImageDown class="h-4 w-4" /> Unduh Gambar</Button>
-          </a>
+          <div v-if="report" class="flex flex-wrap items-center gap-2">
+            <Button variant="outline" @click="printReport">
+              <Printer class="h-4 w-4" /> Cetak Laporan
+            </Button>
+            <a :href="pdfUrl" target="_blank" rel="noopener">
+              <Button variant="outline">
+                <FileDown class="h-4 w-4" /> Unduh PDF
+              </Button>
+            </a>
+            <a :href="imageUrl" target="_blank" rel="noopener">
+              <Button variant="secondary">
+                <ImageDown class="h-4 w-4" /> Unduh Gambar
+              </Button>
+            </a>
+          </div>
         </div>
       </header>
 
-      <Card class="overflow-visible">
+      <Card class="overflow-visible no-print">
         <CardContent class="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:gap-4 sm:px-6">
           <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
             <CalendarDays class="size-5" />
@@ -377,10 +419,86 @@ onMounted(() => { void load(); });
           </CardContent>
         </Card>
 
-        <p class="rounded-2xl border bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+        <p class="rounded-2xl border bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground no-print">
           Detail internal seperti nomor bukti, nama akun, dan catatan audit sengaja tidak dipublikasikan untuk menjaga privasi. Angka berasal dari transaksi yang sudah diposting.
         </p>
+
+        <!-- TANDA TANGAN RESMI PENGESAHAN (HANYA MUNCUL SAAT PRINT) -->
+        <div class="print-only mt-10 page-break-inside-avoid">
+          <p class="mb-4 text-right text-xs">
+            Ditetapkan pada: {{ printDate }}
+          </p>
+          <div class="flex justify-between text-center text-xs">
+            <div class="w-1/3">
+              <p class="mb-16 font-bold">Mengetahui,<br>Pimpinan / Ketua Lembaga</p>
+              <p class="font-bold underline">( &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; )</p>
+            </div>
+            <div class="w-1/3">
+              <p class="mb-16 font-bold">Pengelola Keuangan,<br>Bendahara</p>
+              <p class="font-bold underline">( &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; )</p>
+            </div>
+          </div>
+          <div class="mt-8 flex justify-between border-t border-gray-400 pt-2 text-[10px] text-gray-500">
+            <span>Diterbitkan secara sah melalui platform MizanMu &middot; Tautan verifikasi: mizanmu.pages.dev/transparansi/{{ tenantSlugForDev() || '' }}</span>
+            <span>Dokumen Sah</span>
+          </div>
+        </div>
       </template>
     </div>
   </main>
 </template>
+
+<style>
+@media screen {
+  .print-only {
+    display: none !important;
+  }
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 10.5pt !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  main {
+    background: #ffffff !important;
+    padding: 0 !important;
+    min-height: auto !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .page-break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  /* Table print optimization */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+  th, td {
+    border: 1px solid #d1d5db !important;
+    padding: 6px 8px !important;
+  }
+  th {
+    background-color: #f3f4f6 !important;
+    color: #111827 !important;
+  }
+  .card, header {
+    box-shadow: none !important;
+    border-color: #d1d5db !important;
+  }
+}
+</style>
+

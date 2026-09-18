@@ -45,3 +45,23 @@ export async function renderPngFromHtml(html: string, width: number): Promise<Bu
     await page.close();
   }
 }
+
+/**
+ * Converts `html` to an A4 PDF buffer using the shared browser instance.
+ */
+export async function renderPdfFromHtml(html: string): Promise<Buffer> {
+  const browser = await getSharedBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setContent(html, { waitUntil: 'load' });
+    const pdf = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '14mm', right: '12mm', bottom: '14mm', left: '12mm' },
+    });
+    return Buffer.from(pdf);
+  } finally {
+    await page.close();
+  }
+}
+

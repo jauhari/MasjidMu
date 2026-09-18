@@ -5,6 +5,7 @@ import { InvalidPeriodError, parsePeriod } from '../reports/period.js';
 import type { ReportPeriod } from '../reports/types.js';
 import { buildPublicFinanceReport, PublicFinanceUnavailableError } from './service.js';
 import { renderPublicFinanceImage } from './export-image.js';
+import { renderPublicFinancePdf } from './export-pdf.js';
 
 function defaultPeriodQuery() {
   const now = new Date();
@@ -33,10 +34,11 @@ export const publicFinanceRoute = new Hono<{ Variables: TenantVars }>()
   .use('*', tenantResolver())
   .use('*', requireTenant())
   .get('/', async (c, next) => {
-    return rateLimit(c.req.query('format') === 'image' ? 'publicPdf' : 'public')(c, next);
+    const isExport = c.req.query('format') === 'image' || c.req.query('format') === 'pdf';
+    return rateLimit(isExport ? 'publicPdf' : 'public')(c, next);
   }, async (c) => {
     const format = c.req.query('format') ?? 'json';
-    if (format !== 'json' && format !== 'image') {
+    if (format !== 'json' && format !== 'image' && format !== 'pdf') {
       return c.json({ error: 'invalid_format' }, 400, noStoreHeaders());
     }
 
@@ -70,6 +72,18 @@ export const publicFinanceRoute = new Hono<{ Variables: TenantVars }>()
           headers: noStoreHeaders({
             'Content-Type': 'image/png',
             'Content-Disposition': `inline; filename="keuangan-${period.label}.png"`,
+          }),
+        });
+      }
+      if (format === 'pdf') {
+        const tenantSlug = c.req.query('tenant_slug') ?? '';
+        const publicUrl = `https://mizanmu.pages.dev/transparansi/${tenantSlug}`;
+        const pdf = await renderPublicFinancePdf(report, publicUrl, isAllTime);
+        const safeLabel = period.label.replace(/[^a-zA-Z0-9-_]/g, '_');
+        return c.body(pdf as never, {
+          headers: noStoreHeaders({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `inline; filename="laporan-keuangan-${safeLabel}.pdf"`,
           }),
         });
       }

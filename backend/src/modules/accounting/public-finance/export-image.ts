@@ -37,57 +37,84 @@ function categoryBlock(
   return `<p class="cat-name">${escapeHtml(cat.categoryName)}</p><p class="cat-amount">${formatRupiah(cat.amount)}</p>`;
 }
 
-const MONTH_ABBR_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-const TREND_MONTHS = 6;
-
 function formatSigned(amount: string): string {
   const n = Math.round(Number(amount));
   const sign = n > 0 ? '+' : n < 0 ? '−' : '';
   return `${sign}Rp${Math.abs(n).toLocaleString('id-ID')}`;
 }
 
-/** Trailing N calendar months ending at the latest month with any data --
- * quiet months are printed as a zero row (not skipped), so consecutive
- * labels are never missing a month with no visible gap marker. */
-function trailingMonths(trend: PublicFinanceReportResponse['data']['monthlyTrend'], n: number) {
-  if (!trend.length) return [];
+function annualRecapTableHtml(trend: PublicFinanceReportResponse['data']['monthlyTrend']): string {
+  if (!trend.length) return '';
   const byMonth = new Map(trend.map((m) => [m.month, m]));
-  const [endYear, endMonth] = trend[trend.length - 1]!.month.split('-').map(Number) as [number, number];
-  const result: { month: string; income: string; expense: string }[] = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(Date.UTC(endYear!, endMonth! - 1 - i, 1));
-    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-    const found = byMonth.get(key);
-    result.push({ month: key, income: found?.income ?? '0', expense: found?.expense ?? '0' });
-  }
-  return result;
-}
+  const years = [...new Set(trend.map((m) => Number(m.month.slice(0, 4))))].sort((a, b) => a - b);
 
-function trendTableHtml(trend: PublicFinanceReportResponse['data']['monthlyTrend']): string {
-  const recent = trailingMonths(trend, TREND_MONTHS);
-  if (recent.length < 2) return '';
-  const rows = recent
-    .map((m, i) => {
-      const [, mm] = m.month.split('-');
-      const label = MONTH_ABBR_ID[Number(mm) - 1];
-      const net = (Number(m.income) - Number(m.expense)).toFixed(2);
-      const shade = i % 2 === 1 ? 'background:#f7faf8;' : '';
-      return `<tr style="${shade}">
-        <td class="tc-month">${escapeHtml(label!)}</td>
-        <td class="tc-num tc-income">${formatRupiah(m.income)}</td>
-        <td class="tc-num tc-expense">${formatRupiah(m.expense)}</td>
-        <td class="tc-num tc-net">${formatSigned(net)}</td>
-      </tr>`;
-    })
-    .join('');
+  let grandIncome = 0;
+  let grandExpense = 0;
+
+  const rows = years.map((y, i) => {
+    let yInc = 0;
+    let yExp = 0;
+    for (let m = 1; m <= 12; m++) {
+      const key = `${y}-${String(m).padStart(2, '0')}`;
+      const found = byMonth.get(key);
+      yInc += Number(found?.income ?? 0);
+      yExp += Number(found?.expense ?? 0);
+    }
+    grandIncome += yInc;
+    grandExpense += yExp;
+    const net = yInc - yExp;
+    const shade = i % 2 === 1 ? 'background:#f7faf8;' : '';
+    return `<tr style="${shade}">
+      <td class="tc-month" style="font-weight: 700;">Tahun ${y}</td>
+      <td class="tc-num tc-income">${formatRupiah(String(yInc))}</td>
+      <td class="tc-num tc-expense">${formatRupiah(String(yExp))}</td>
+      <td class="tc-num tc-net" style="${net >= 0 ? 'color:#0f9d6e;' : 'color:#c1591f;'}">${formatSigned(String(net))}</td>
+    </tr>`;
+  }).join('');
+
+  const grandNet = grandIncome - grandExpense;
+
   return `<div class="card">
-    <div class="stat-label" style="margin-bottom: 18px;">Rincian ${recent.length} Bulan Terakhir</div>
+    <div class="stat-label" style="margin-bottom: 14px;">Rekapitulasi Keuangan Per Tahun (Seluruh Waktu)</div>
     <table class="trend-table">
       <thead><tr>
-        <th class="tc-month">Bulan</th>
+        <th class="tc-month">Tahun Buku</th>
         <th class="tc-num">Pemasukan</th>
         <th class="tc-num">Pengeluaran</th>
-        <th class="tc-num">Selisih</th>
+        <th class="tc-num">Surplus / (Defisit)</th>
+      </tr></thead>
+      <tbody>
+        ${rows}
+        <tr style="background: #eef5f1; font-weight: 800; border-top: 2.5px solid #16241c;">
+          <td class="tc-month">Total Akumulasi</td>
+          <td class="tc-num tc-income">${formatRupiah(String(grandIncome))}</td>
+          <td class="tc-num tc-expense">${formatRupiah(String(grandExpense))}</td>
+          <td class="tc-num tc-net" style="${grandNet >= 0 ? 'color:#0f9d6e;' : 'color:#c1591f;'}">${formatSigned(String(grandNet))}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function movementsTableHtml(movements: PublicFinanceReportResponse['data']['movements']): string {
+  if (!movements || !movements.length) return '';
+  const rows = movements.slice(0, 8).map((m, i) => {
+    const shade = i % 2 === 1 ? 'background:#f7faf8;' : '';
+    return `<tr style="${shade}">
+      <td class="tc-month" style="color: #5b6b62; font-size: 19px;">${escapeHtml(m.date.slice(0, 10))}</td>
+      <td class="tc-month" style="font-size: 20px;">${escapeHtml(m.label)}</td>
+      <td class="tc-num tc-income" style="font-size: 20px;">${m.direction === 'income' ? formatRupiah(m.amount) : '—'}</td>
+      <td class="tc-num tc-expense" style="font-size: 20px;">${m.direction === 'expense' ? formatRupiah(m.amount) : '—'}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="card">
+    <div class="stat-label" style="margin-bottom: 14px;">Mutasi Transaksi Periode Ini</div>
+    <table class="trend-table">
+      <thead><tr>
+        <th class="tc-month" style="width: 20%;">Tanggal</th>
+        <th class="tc-month" style="width: 40%;">Kategori</th>
+        <th class="tc-num" style="width: 20%;">Masuk</th>
+        <th class="tc-num" style="width: 20%;">Keluar</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -215,7 +242,7 @@ export function renderPublicFinanceHtml(
         </div>
       </div>
 
-      ${includeTrend ? trendTableHtml(report.data.monthlyTrend) : ''}
+      ${includeTrend ? annualRecapTableHtml(report.data.monthlyTrend) : movementsTableHtml(report.data.movements)}
     </div>
 
     <div class="footer">

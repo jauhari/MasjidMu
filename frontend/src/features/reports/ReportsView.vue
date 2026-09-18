@@ -426,6 +426,22 @@ function publicFinanceImageUrl(): string {
   return `/api/public/keuangan?${params.toString()}`;
 }
 
+function publicFinancePdfUrl(): string {
+  const tenant = getTenantSlug();
+  const params = new URLSearchParams({ format: 'pdf' });
+  if (financePeriodMode.value === 'all') {
+    params.set('period', 'all');
+  } else if (financePeriodMode.value === 'custom') {
+    if (financeDateFrom.value) params.set('startDate', financeDateFrom.value);
+    if (financeDateTo.value) params.set('endDate', financeDateTo.value);
+  } else {
+    params.set('month', String(financeMonth.value));
+    params.set('year', String(financeYear.value));
+  }
+  if (tenant) params.set('tenant_slug', tenant);
+  return `/api/public/keuangan?${params.toString()}`;
+}
+
 // ─── Data-integrity glances — murni tampilan, tidak mengubah angka apa pun.
 // Toleransi 0.5 (setengah rupiah) untuk meredam noise pembulatan string.
 const balanceSheetDiff = computed(() => {
@@ -670,6 +686,9 @@ watch(
           >
             Cabut
           </Button>
+          <a v-if="publicFinanceStatus?.isPublished" :href="publicFinancePdfUrl()" target="_blank" rel="noopener">
+            <Button variant="secondary"><Download class="h-3.5 w-3.5" /> Unduh PDF</Button>
+          </a>
           <a v-if="publicFinanceStatus?.isPublished" :href="publicFinanceImageUrl()" target="_blank" rel="noopener">
             <Button variant="secondary"><Download class="h-3.5 w-3.5" /> Unduh Gambar</Button>
           </a>

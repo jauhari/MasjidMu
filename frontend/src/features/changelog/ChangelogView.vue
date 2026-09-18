@@ -30,6 +30,20 @@ const typeBadge: Record<ChangeEntry['type'], { icon: unknown; label: string; cls
 const entries: ChangeEntry[] = [
   {
     date: '2026-09-18',
+    type: 'feature',
+    title: 'Model Cetak & PDF Laporan Transparansi Keuangan Profesional',
+    description:
+      'Halaman Transparansi Keuangan kini dilengkapi tombol Cetak Laporan (dengan Kop Surat resmi, tata letak print A4 bersih, dan lembar pengesahan tanda tangan) serta tombol Unduh PDF. Fitur Unduh Gambar juga diperbarui agar menampilkan Rekapitulasi Tahunan penuh saat memilih opsi Semua Data.',
+    files: [
+      'features/public-finance/PublicFinanceView.vue',
+      'features/reports/ReportsView.vue',
+      'modules/accounting/public-finance/export-pdf.ts',
+      'modules/accounting/public-finance/export-image.ts',
+      'modules/accounting/public-finance/route.ts',
+    ],
+  },
+  {
+    date: '2026-09-18',
     type: 'ui',
     title: 'Sembunyikan Opsi & Kartu Dana PAP untuk Lembaga Non-Dana',
     description:
