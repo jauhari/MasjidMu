@@ -1,6 +1,6 @@
 # Handoff — MasjidMu v2 / MizanMu
 
-**Tanggal:** 2026-08-26 (terakhir diperbarui)
+**Tanggal:** 2026-09-18 (terakhir diperbarui)
 **Branch aktif:** `main` (sudah dipush & live di produksi — lihat §4)
 **Domain Produksi:** Frontend `https://mizanmu.pages.dev`, Backend `https://masjidmu-backend.onrender.com`
 **Stack:** Vue 3 + Vite + Reka UI + Cloudflare Pages (frontend), Hono + Better-Auth + Drizzle + Neon PostgreSQL / Render (backend)
@@ -252,7 +252,9 @@ Dua gap terakhir dari arsitektur multi-tenant kini terisi:
 - `e4aedc2` `fix(reports): tie monthly breakdown to the "Semua Data" period only`
 - `7578219` `feat(reports): show anonymized transaction list for a specific period`
 - `10c7a47` `feat(reports): redesign period selector as a segmented pill control`
-- `1a43af2` `fix(reports): constrain DatePicker width in the custom period selector` -- regresi dari `10c7a47`: DatePicker butuh wrapper lebar tetap (sama seperti AppSelect), tanpa itu dua DatePicker berebut lebar penuh flex-1 dan malah numpuk vertikal alih-alih sejajar. User yang nemuin lewat screenshot.
+- `1a43af2` `fix(reports): constrain DatePicker width in the custom period selector`
+- `16a6c17` `feat(team): add team management + self-service signup`
+- `0d9b4ad` `fix(team): use valid danger variant for remove button in TeamView`
 
 Push langsung ke `main` tanpa staging, atas instruksi eksplisit user sesi ini ("langsung push aja selalu biar bisa test") — lihat memory `user-vibe-coder`.
 

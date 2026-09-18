@@ -29,6 +29,39 @@ const typeBadge: Record<ChangeEntry['type'], { icon: unknown; label: string; cls
 
 const entries: ChangeEntry[] = [
   {
+    date: '2026-09-18',
+    type: 'fix',
+    title: 'Perbaikan Kompatibilitas Tombol Hapus Tim',
+    description:
+      'Memperbaiki varian tombol aksi hapus anggota tim pada modal konfirmasi agar selaras dengan standar design system Button shared.',
+    files: ['features/team/TeamView.vue'],
+  },
+  {
+    date: '2026-08-26',
+    type: 'feature',
+    title: 'Manajemen Tim & Pendaftaran Mandiri (Self-Service Signup)',
+    description:
+      'Lembaga baru kini dapat mendaftar mandiri via /register dengan setup otomatis akun admin, role bendahara, dan bagan akun standar. Pengurus juga dapat mengundang anggota tim baru melalui email dengan kontrol akses berbasis peran (RBAC) pada halaman Tim.',
+    files: [
+      'features/team/TeamView.vue',
+      'features/auth/RegisterView.vue',
+      'modules/core/team/route.ts',
+      'modules/core/auth/register.ts',
+    ],
+  },
+  {
+    date: '2026-08-26',
+    type: 'fix',
+    title: 'Automasi Refresh Data Laporan (Materialized Views)',
+    description:
+      'Penyediaan endpoint internal /api/jobs/refresh-mv terproteksi token untuk cron job GitHub Actions serta perbaikan koneksi database tingkat owner agar saldo akun dan ringkasan bulanan selalu terbarui otomatis.',
+    files: [
+      'modules/jobs/route.ts',
+      'lib/cron/refresh-mat-views.ts',
+      '.github/workflows/cron-refresh-mv.yml',
+    ],
+  },
+  {
     date: '2026-08-25',
     type: 'feature',
     title: 'Transparansi Keuangan Umum',
