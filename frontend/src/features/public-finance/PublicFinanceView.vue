@@ -264,6 +264,29 @@ const trendTotals = computed(() => {
   return { income: income.toFixed(2), expense: expense.toFixed(2), net: (income - expense).toFixed(2) };
 });
 
+/** Colour class for a printed amount; zero is greyed out so the real movements stand out. */
+function amountClass(value: string | number | null | undefined, tone: 'in' | 'out' | 'net'): string {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n) || n === 0) return 'pd-zero';
+  if (tone === 'in') return 'pd-in';
+  if (tone === 'out') return 'pd-out';
+  return n < 0 ? 'pd-neg' : 'pd-pos';
+}
+
+/** The per-year recap is built from income/expense categories while the Buku Kas follows every
+ * cash movement, so their totals can differ (e.g. an opening-balance receipt is cash but not
+ * income). Say so instead of leaving two different "Total Pemasukan" figures unexplained. */
+const recapGapText = computed(() => {
+  const ledger = report.value?.data.ledger;
+  if (!ledger || periodMode.value !== 'all' || !trendByYear.value.length) return null;
+  const income = Math.abs(Math.round(Number(ledger.totalMasuk) - Number(trendTotals.value.income)));
+  const expense = Math.abs(Math.round(Number(ledger.totalKeluar) - Number(trendTotals.value.expense)));
+  const parts: string[] = [];
+  if (income > 0) parts.push(`pemasukan Rp ${fmtNum(income)}`);
+  if (expense > 0) parts.push(`pengeluaran Rp ${fmtNum(expense)}`);
+  return parts.length ? parts.join(', ') : null;
+});
+
 /** The printed document only exists once a report is on screen (not while a new period loads). */
 const printable = computed(() => report.value !== null && !loading.value);
 
@@ -668,18 +691,22 @@ onBeforeUnmount(() => {
             <tbody>
               <tr v-for="(y, i) in trendByYear" :key="y.year" :class="{ 'pd-alt': i % 2 === 1 }">
                 <td>Tahun {{ y.year }}</td>
-                <td class="pd-r pd-in">{{ fmtNum(y.totalIncome) }}</td>
-                <td class="pd-r pd-out">{{ fmtNum(y.totalExpense) }}</td>
-                <td class="pd-r" :class="Number(y.totalNet) < 0 ? 'pd-neg' : 'pd-pos'">{{ fmtNum(y.totalNet, true) }}</td>
+                <td class="pd-r" :class="amountClass(y.totalIncome, 'in')">{{ fmtNum(y.totalIncome) }}</td>
+                <td class="pd-r" :class="amountClass(y.totalExpense, 'out')">{{ fmtNum(y.totalExpense) }}</td>
+                <td class="pd-r" :class="amountClass(y.totalNet, 'net')">{{ fmtNum(y.totalNet, true) }}</td>
               </tr>
               <tr class="pd-total">
                 <td>Akumulasi Seluruh Waktu</td>
-                <td class="pd-r pd-in">{{ fmtNum(trendTotals.income) }}</td>
-                <td class="pd-r pd-out">{{ fmtNum(trendTotals.expense) }}</td>
-                <td class="pd-r" :class="Number(trendTotals.net) < 0 ? 'pd-neg' : 'pd-pos'">{{ fmtNum(trendTotals.net, true) }}</td>
+                <td class="pd-r" :class="amountClass(trendTotals.income, 'in')">{{ fmtNum(trendTotals.income) }}</td>
+                <td class="pd-r" :class="amountClass(trendTotals.expense, 'out')">{{ fmtNum(trendTotals.expense) }}</td>
+                <td class="pd-r" :class="amountClass(trendTotals.net, 'net')">{{ fmtNum(trendTotals.net, true) }}</td>
               </tr>
             </tbody>
           </table>
+          <p v-if="recapGapText" class="pd-note">
+            Rekapitulasi dihitung dari kategori pemasukan dan pengeluaran, sedangkan Buku Kas mencatat seluruh
+            pergerakan kas (termasuk saldo awal dan transaksi non-operasional). Selisih total: {{ recapGapText }}.
+          </p>
         </section>
 
         <section class="pd-years" :class="{ 'pd-years--single': trendByYear.length === 1 }">
@@ -697,15 +724,15 @@ onBeforeUnmount(() => {
               <tbody>
                 <tr v-for="(m, i) in y.months" :key="m.label" :class="{ 'pd-alt': i % 2 === 1 }">
                   <td>{{ m.label }}</td>
-                  <td class="pd-r pd-in">{{ fmtNum(m.income) }}</td>
-                  <td class="pd-r pd-out">{{ fmtNum(m.expense) }}</td>
-                  <td class="pd-r" :class="Number(m.net) < 0 ? 'pd-neg' : 'pd-pos'">{{ fmtNum(m.net, true) }}</td>
+                  <td class="pd-r" :class="amountClass(m.income, 'in')">{{ fmtNum(m.income) }}</td>
+                  <td class="pd-r" :class="amountClass(m.expense, 'out')">{{ fmtNum(m.expense) }}</td>
+                  <td class="pd-r" :class="amountClass(m.net, 'net')">{{ fmtNum(m.net, true) }}</td>
                 </tr>
                 <tr class="pd-total">
                   <td>Total {{ y.year }}</td>
-                  <td class="pd-r pd-in">{{ fmtNum(y.totalIncome) }}</td>
-                  <td class="pd-r pd-out">{{ fmtNum(y.totalExpense) }}</td>
-                  <td class="pd-r" :class="Number(y.totalNet) < 0 ? 'pd-neg' : 'pd-pos'">{{ fmtNum(y.totalNet, true) }}</td>
+                  <td class="pd-r" :class="amountClass(y.totalIncome, 'in')">{{ fmtNum(y.totalIncome) }}</td>
+                  <td class="pd-r" :class="amountClass(y.totalExpense, 'out')">{{ fmtNum(y.totalExpense) }}</td>
+                  <td class="pd-r" :class="amountClass(y.totalNet, 'net')">{{ fmtNum(y.totalNet, true) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -754,8 +781,8 @@ onBeforeUnmount(() => {
             <tr v-if="g.total" class="pd-total">
               <td></td>
               <td>Jumlah</td>
-              <td class="pd-r pd-in">{{ fmtNum(report.data.ledger.totalMasuk) }}</td>
-              <td class="pd-r pd-out">{{ fmtNum(report.data.ledger.totalKeluar) }}</td>
+              <td class="pd-r" :class="amountClass(report.data.ledger.totalMasuk, 'in')">{{ fmtNum(report.data.ledger.totalMasuk) }}</td>
+              <td class="pd-r" :class="amountClass(report.data.ledger.totalKeluar, 'out')">{{ fmtNum(report.data.ledger.totalKeluar) }}</td>
               <td class="pd-r" :class="{ 'pd-neg': Number(report.data.ledger.closingBalance) < 0 }">{{ fmtNum(report.data.ledger.closingBalance) }}</td>
             </tr>
           </tbody>
@@ -1122,6 +1149,11 @@ onBeforeUnmount(() => {
     color: #b91c1c;
   }
 
+  .pd-zero {
+    font-weight: 400;
+    color: #9ca3af;
+  }
+
   .pd-empty {
     padding: 10px 6px !important;
     text-align: center;
@@ -1203,7 +1235,7 @@ onBeforeUnmount(() => {
   }
 
   .pd-sign-date {
-    margin-bottom: 8px;
+    margin-bottom: 14px;
     text-align: right;
   }
 

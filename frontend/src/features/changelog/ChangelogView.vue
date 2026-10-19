@@ -30,6 +30,14 @@ const typeBadge: Record<ChangeEntry['type'], { icon: unknown; label: string; cls
 const entries: ChangeEntry[] = [
   {
     date: '2026-10-19',
+    type: 'ui',
+    title: 'Cetak Laporan Publik Tampil sebagai Dokumen Resmi (Bukan Tangkapan Halaman Web)',
+    description:
+      'Tombol "Cetak Laporan" (Ctrl+P) di halaman publik kini mencetak dokumen terpisah: kop surat, ringkasan Saldo Awal + Pemasukan − Pengeluaran = Saldo Akhir, tabel kategori terbesar, rekap per tahun dan rincian bulanan untuk "Semua Data", Buku Kas bertabel rapi (judul kolom berulang di tiap halaman, baris tidak terpotong), tanda tangan, dan nomor halaman. Nama file PDF hasil cetak ikut berisi nama lembaga dan periode. Tampilan di layar tidak berubah.',
+    files: ['features/public-finance/PublicFinanceView.vue'],
+  },
+  {
+    date: '2026-10-19',
     type: 'feature',
     title: 'Buku Kas: Laporan Publik dengan Format Buku Kas Tulis (Keterangan + Saldo Berjalan)',
     description:
