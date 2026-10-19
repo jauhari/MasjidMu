@@ -42,6 +42,8 @@
 - Unit test memakai 10 baris asli Juli 2026: saldo berjalan yang dihitung kode **sama persis dengan kolom Saldo di buku kas tulis user** (7.816.000 → 7.516.000 → 7.816.000 → 7.516.000 → 6.591.000 → 6.479.000 → 5.979.000 → 5.879.000 → 5.729.000 → 6.410.000). Total 44 tes baru (33 penyamar + 11 ledger) lulus; suite backend 138 lulus, 2 file gagal = tes DB yang gagal di baseline juga.
 - Render dari fixture data asli: kartu gambar, PDF (ekstraksi teks pdfjs: "Halaman N dari 7", header tabel berulang di halaman 4–7), halaman Vue asli lewat Puppeteer dengan API di-intercept (117 `<tr>` untuk 115 transaksi + Saldo awal + Jumlah; `thead` = `table-header-group` saat media print).
 
+**Verifikasi produksi pasca-deploy**: API Juli 2026 → saldo awal 7.446.000, akhir 6.410.000, 10 baris, tiap saldo = buku tulis; dengan saklar OFF payload tidak memuat teks keterangan apa pun (dicek: Rohmi/Karsilah/Latiyem/Transport SWA/Snack parenting/kemah tidak ada); `PATCH /public-finance/settings` tanpa sesi → 401 (route ada & terlindungi); PDF Juli 1 halaman, PDF Semua Data 7 halaman ("Halaman N dari 7", header kolom berulang di halaman 4–7, baris Jumlah di halaman 7); halaman asli: 12 baris tabel untuk Juli, 117 untuk Semua Data. **Belum teruji**: klik checkbox saklar di kartu admin pada sesi login sungguhan (hanya endpoint + build/typecheck yang diverifikasi) — minta user mencoba.
+
 **Urutan deploy (halaman publik sedang LIVE)**: frontend dulu dengan guard `v-if="report.data.ledger"` (kartu Buku Kas tersembunyi bila API masih versi lama), baru backend. Frontend & backend deploy terpisah (Cloudflare vs Render); kalau backend duluan, frontend lama akan crash membaca `data.movements` yang sudah tidak ada. Pelajaran umum: kalau mengubah bentuk respons API publik yang sedang live, deploy sisi konsumen yang toleran dulu.
 
 ### 0.3 Temuan data: buku kas tulis lebih baru daripada aplikasi
@@ -53,7 +55,7 @@ Foto buku kas user memuat **5 transaksi yang belum ada di aplikasi**: 29 Agu "Tr
 - Tool deferred (mis. `run_sql`) harus dimuat lewat ToolSearch sebelum dipanggil.
 - `Read` tidak bisa render PDF di mesin ini (`pdftoppm` tidak ada). Verifikasi PDF: `pdfjs-dist@3` diinstal di folder scratch (bukan repo) dan ekstrak teks per halaman — cukup untuk cek jumlah halaman, footer, dan header tabel berulang.
 - Jangan `... | grep | sed` untuk proses yang lama — pipa menahan output sampai selesai dan terlihat "hang"; arahkan output ke file log lalu baca.
-- `preview_stop` untuk dev server Vite yang saya mulai sempat ditolak classifier otomatis; server `localhost:5173` mungkin masih jalan (hentikan manual kalau `pnpm dev` user bentrok port — `strictPort: true`).
+- `preview_stop` untuk dev server Vite sempat ditolak classifier otomatis pada percobaan pertama, lolos pada percobaan ulang (server sudah dihentikan). Kalau `pnpm dev` user bentrok port 5173 (`strictPort: true`), cek apakah ada dev server sisa.
 
 ---
 
