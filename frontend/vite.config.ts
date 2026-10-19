@@ -36,7 +36,15 @@ export default defineConfig({
         // the Google OAuth callback redirect (a real page navigation, not a
         // fetch), so the auth code/state never reached the backend at all;
         // it just silently landed back on the SPA shell every time.
-        navigateFallbackDenylist: [/^\/api\//],
+        // /transparansi/* (laporan publik untuk jamaah) juga di-denylist:
+        // link itu dibuka lewat navigasi penuh dari WhatsApp/tab baru, dan
+        // kalau service worker pengunjung lama rusak/cache-nya hilang,
+        // handler navigasi SW bisa gagal dan Chrome menampilkan "This site
+        // can't be reached (ERR_FAILED)" padahal server sehat. Dilewatkan
+        // langsung ke jaringan: Cloudflare Pages sudah menyajikan
+        // index.html (SPA fallback via public/_redirects), jadi halaman
+        // publik tidak bergantung pada kesehatan SW sama sekali.
+        navigateFallbackDenylist: [/^\/api\//, /^\/transparansi(\/|$)/],
         // Tanpa ini, SW lama bisa terus menyajikan build basi dari cache
         // walau dev server sudah mati / origin dipakai ulang oleh project
         // lain — SW baru wajib langsung ambil alih & buang cache lama.
