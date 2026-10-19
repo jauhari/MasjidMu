@@ -49,6 +49,9 @@ export async function renderPngFromHtml(html: string, width: number): Promise<Bu
 /**
  * Converts `html` to an A4 PDF buffer using the shared browser instance.
  */
+/** Real page numbers: the report can run to many pages (full Buku Kas), so a fixed "1 dari 1" in the body is wrong. */
+const PDF_PAGE_FOOTER = `<div style="width:100%;padding:0 12mm;font-family:Arial,sans-serif;font-size:8px;color:#6b7280;text-align:right;">Halaman <span class="pageNumber"></span> dari <span class="totalPages"></span></div>`;
+
 export async function renderPdfFromHtml(html: string): Promise<Buffer> {
   const browser = await getSharedBrowser();
   const page = await browser.newPage();
@@ -57,7 +60,10 @@ export async function renderPdfFromHtml(html: string): Promise<Buffer> {
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
-      margin: { top: '14mm', right: '12mm', bottom: '14mm', left: '12mm' },
+      displayHeaderFooter: true,
+      headerTemplate: '<span></span>',
+      footerTemplate: PDF_PAGE_FOOTER,
+      margin: { top: '14mm', right: '12mm', bottom: '17mm', left: '12mm' },
     });
     return Buffer.from(pdf);
   } finally {

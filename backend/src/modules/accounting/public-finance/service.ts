@@ -4,10 +4,9 @@ import { tenants, users } from '../../../db/schema/core.js';
 import { publicFinanceReports } from '../../../db/schema/accounting.js';
 import { mosqueProfiles } from '../../../db/schema/organization.js';
 import { memClearPrefix, memGet, memSet } from '../../../lib/memory-cache.js';
-import { buildCashFlow } from '../reports/services/cash-flow.js';
+import { buildCashLedger } from '../reports/services/cash-ledger.js';
 import { buildTopCategories } from '../reports/services/category-breakdown.js';
 import { buildMonthlyTrend } from '../reports/services/monthly-trend.js';
-import { buildMovements } from '../reports/services/movements.js';
 import type { ReportPeriod } from '../reports/types.js';
 import type { PublicFinanceReportResponse } from './types.js';
 
@@ -35,6 +34,7 @@ export async function getPublicFinanceStatus(tenantId: string) {
     const [row] = await tx
       .select({
         isPublished: publicFinanceReports.isPublished,
+        showDescriptions: publicFinanceReports.showDescriptions,
         publishedAt: publicFinanceReports.publishedAt,
         revokedAt: publicFinanceReports.revokedAt,
         updatedAt: publicFinanceReports.updatedAt,
@@ -43,6 +43,25 @@ export async function getPublicFinanceStatus(tenantId: string) {
       .where(eq(publicFinanceReports.tenantId, tenantId));
     return row ?? null;
   });
+}
+
+/**
+ * Toggle whether the public Buku Kas shows (name-masked) transaction
+ * descriptions. Bumps updated_at because the report cache key includes it,
+ * so the change shows on the very next load instead of after the TTL.
+ */
+export async function updatePublicFinanceSettings(args: { tenantId: string; showDescriptions: boolean }) {
+  const { tenantId, showDescriptions } = args;
+  const row = await withTenant(tenantId, async (tx) => {
+    const [updated] = await tx
+      .update(publicFinanceReports)
+      .set({ showDescriptions, updatedAt: new Date() })
+      .where(eq(publicFinanceReports.tenantId, tenantId))
+      .returning();
+    return updated ?? null;
+  });
+  await invalidatePublicFinanceCache(tenantId);
+  return row;
 }
 
 async function appUserIdForAuthUser(tenantId: string, authUserId: string): Promise<string | null> {
@@ -110,6 +129,7 @@ async function loadPublishedConfig(tenantId: string) {
     const [row] = await tx
       .select({
         isPublished: publicFinanceReports.isPublished,
+        showDescriptions: publicFinanceReports.showDescriptions,
         publishedAt: publicFinanceReports.publishedAt,
         updatedAt: publicFinanceReports.updatedAt,
       })
@@ -132,7 +152,7 @@ export async function buildPublicFinanceReport(args: {
   const cached = memGet<PublicFinanceReportResponse>(cacheKey);
   if (cached) return cached;
 
-  const [tenantIdentity, profile, cashFlow, categories, monthlyTrend, movements] = await Promise.all([
+  const [tenantIdentity, profile, ledger, categories, monthlyTrend] = await Promise.all([
     asSuperAdmin(async (tx) => {
       const [row] = await tx
         .select({ name: tenants.name, shortName: tenants.shortName })
@@ -152,10 +172,9 @@ export async function buildPublicFinanceReport(args: {
         .where(eq(mosqueProfiles.tenantId, tenantId));
       return row ?? null;
     }),
-    buildCashFlow({ tenantId, period }),
+    buildCashLedger({ tenantId, period, showDescriptions: config.showDescriptions }),
     buildTopCategories({ tenantId, period }),
     buildMonthlyTrend({ tenantId }),
-    buildMovements({ tenantId, period }),
   ]);
 
   const response: PublicFinanceReportResponse = {
@@ -170,11 +189,12 @@ export async function buildPublicFinanceReport(args: {
     publication: { publishedAt: config.publishedAt.toISOString() },
     generatedAt: new Date().toISOString(),
     data: {
-      cashPosition: cashFlow.closingCash,
+      // Same ledger as the Buku Kas below, so the headline can never disagree with its last saldo.
+      cashPosition: ledger.closingBalance,
       topIncome: categories.income,
       topExpense: categories.expense,
       monthlyTrend,
-      movements,
+      ledger,
     },
   };
   memSet(cacheKey, response, CACHE_TTL_SEC);

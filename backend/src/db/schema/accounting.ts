@@ -156,6 +156,8 @@ export const publicFinanceReports = pgTable(
       .primaryKey()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     isPublished: boolean().default(false).notNull(),
+    /** Opt-in: show (name-masked) transaction descriptions in the public Buku Kas. */
+    showDescriptions: boolean().default(false).notNull(),
     publishedAt: timestamp({ withTimezone: true }),
     publishedBy: uuid().references(() => users.id),
     revokedAt: timestamp({ withTimezone: true }),

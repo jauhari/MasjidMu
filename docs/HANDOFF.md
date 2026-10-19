@@ -1,9 +1,59 @@
 # Handoff — MasjidMu v2 / MizanMu
 
-**Tanggal:** 2026-09-18 (terakhir diperbarui)
+**Tanggal:** 2026-10-19 (terakhir diperbarui)
 **Branch aktif:** `main` (sudah dipush & live di produksi — lihat §4)
 **Domain Produksi:** Frontend `https://mizanmu.pages.dev`, Backend `https://masjidmu-backend.onrender.com`
 **Stack:** Vue 3 + Vite + Reka UI + Cloudflare Pages (frontend), Hono + Better-Auth + Drizzle + Neon PostgreSQL / Render (backend)
+
+---
+
+## 0. Sesi 2026-10-19 — "ERR_FAILED" link publik + format Buku Kas
+
+### 0.1 Insiden: link publik `/transparansi/pca-ponjong` → "This site can't be reached (ERR_FAILED)" di Chrome user
+
+**Gejala**: kartu admin sudah "Dipublikasikan", tombol "Buka" membuka tab baru yang menampilkan `ERR_FAILED`.
+
+**Yang diverifikasi (situs sehat)**: halaman 200, `/api/public/keuangan` 200 dengan data, backend `/healthz` OK, `sw.js` normal (`index.html` ter-precache, tidak ada rute spesifik `/transparansi`). Halaman **berhasil dimuat di 3 profil Chromium berbeda di PC yang sama** (Puppeteer pengunjung baru, Puppeteer pengunjung dengan service worker terdaftar, dan browser bawaan Claude). Jadi bukan outage, bukan bug render.
+
+**Temuan lingkungan PC user (penyebab paling mungkin, belum terbukti)**: ada VPN/tunnel **ProTUN** aktif (DNS adapter `127.0.2.2/127.0.2.3`). Dari PC yang sama, koneksi **Postgres langsung ke Neon** (`pg`, port 5432) juga gagal `ECONNRESET` di tengah handshake (~20 detik) padahal DNS & TCP connect normal — Neon MCP & Render tetap sehat, jadi masalahnya di jalur jaringan PC, bukan di server. Pola yang sama (koneksi lolos TCP lalu di-reset) cocok dengan VPN/proxy transparan yang mengganggu sebagian koneksi. Tes DB lokal (`rls.test.ts`, `journal-balance.test.ts`) gagal "Hook timed out" di baseline juga — bukan regresi.
+
+**Hardening yang di-deploy (commit `772dab6`)**: `navigateFallbackDenylist` di `vite.config.ts` sekarang `[/^\/api\//, /^\/transparansi(\/|$)/]` — navigasi penuh ke link publik tidak lagi lewat handler navigasi service worker (yang bisa gagal → ERR_FAILED bila cache precache pengunjung rusak/hilang); Cloudflare Pages sudah menyajikan `index.html` lewat `public/_redirects`. Ini hardening terhadap kandidat penyebab terkuat di sisi aplikasi, **bukan fix akar masalah yang terkonfirmasi**.
+
+**Kalau user masih kena**: minta tes di jendela Incognito / matikan VPN-ProTUN sebentar / Ctrl+Shift+R. Kalau Incognito berhasil → state service worker/ekstensi profil Chrome-nya; kalau tetap gagal dengan VPN mati → kumpulkan `chrome://net-export`.
+
+### 0.2 Fitur: Buku Kas (format buku kas tulis) di laporan publik
+
+**Permintaan user**: tampilkan laporan seperti buku kas tulis PCA Ponjong (foto: kolom **TGL | Keterangan | Masuk | Keluar | Saldo**).
+
+**Apa yang dibangun**
+- `backend/src/modules/accounting/reports/services/cash-ledger.ts` — satu baris per pergerakan kas + **saldo berjalan**, dihitung **langsung dari `journals`/`journal_lines`** akun kas (`asset`, kode `11%` — definisi sama dengan `buildCashFlow`), BUKAN dari `mv_account_balances` (pernah basi). Semua gerakan kas ikut (termasuk "Dana dari Bendahara Lama" yang lawannya akun ekuitas) supaya saldo cocok dengan saldo riil; transfer antar-akun kas net 0 → dibuang. Urut `journal_date, created_at, journal_no`. Batas 1000 baris (`truncated`); `closingBalance` dihitung dari agregat, bukan dari baris yang terpotong. Logika murni dipisah ke `assembleCashLedger()` supaya bisa dites tanpa DB.
+- `Posisi Kas Saat Ini` di halaman sekarang = `ledger.closingBalance` (sebelumnya `buildCashFlow().closingCash` yang bergantung mat-view) — headline tidak mungkin beda dengan saldo terakhir tabel.
+- Tampil di halaman web (semua mode periode; di "Semua Data" di bawah rekap bulanan), cetak (header tabel berulang tiap halaman, baris tidak terpotong), PDF (Saldo awal + Jumlah), dan kartu gambar WhatsApp (10 baris terakhir + Jumlah).
+- **Footer PDF**: sebelumnya teks tetap "Halaman 1 dari 1 (Dokumen Sah)" — salah untuk PDF "Semua Data" yang kini 7 halaman. Diganti nomor halaman asli Chromium (`footerTemplate` dengan `pageNumber`/`totalPages`) di `reports/export/browser.ts`.
+
+**Privasi — saklar opt-in (default MATI)**
+- Kolom baru `public_finance_reports.show_descriptions boolean NOT NULL DEFAULT false` (migrasi `098_public_finance_show_descriptions.sql`, additive, **sudah diterapkan ke Neon produksi**). Endpoint admin `PATCH /api/v1/reports/public-finance/settings` `{showDescriptions}` (izin `reports.publish`, 409 `not_published_yet` bila belum pernah dipublikasikan). Checkbox di kartu "Transparansi Keuangan Umum" (`ReportsView.vue`).
+- **OFF**: kolom Keterangan = nama kategori (perilaku lama; tidak ada teks deskripsi di payload — dites). **ON**: deskripsi transaksi lewat `lib/mask-personal-names.ts`.
+- **Penyamar nama** (`maskPublicDescription`): nama setelah sebutan `Bu/Ibu/Bpk/Bapak/Pak/Mbak/Mas/Kak/Umi/Abi/Abah/Mbah/Ust/Ustadz(ah)/Hj`, plus `B.`/`P.`/`H.` (pakai titik), jadi inisial+`***` ("Infaq Bu Rohmi" → "Infaq Bu R***", "Infaq B. Umi Syarifah" → "Infaq B. U*** S***", "B. ngatir" huruf kecil ikut). Juga menyamarkan nomor HP, email, dan angka 9+ digit; "dr" TIDAK dianggap sebutan (di buku itu artinya "dari"). Dites terhadap **101 keterangan asli PCA Ponjong**: 14 tersamarkan benar, 87 tidak berubah.
+- **Batas heuristik**: nama yang ditulis TANPA sebutan lolos. Di data PCA Ponjong satu-satunya kandidat: **"Kunsiroh"** (`Infaq Kunsiroh`, `Banner Kunsiroh`, `Infaq (Kunsiroh)`) — mungkin nama ranting, mungkin nama orang; user perlu konfirmasi sebelum saklar dinyalakan. Itu sebabnya default MATI dan UI memperingatkan.
+
+**Verifikasi (DB lokal tidak terjangkau dari PC ini — lihat §0.1)**
+- Teks SQL persis seperti di kode dijalankan lewat Neon MCP dengan literal: Juli 2026 → saldo awal 7.446.000, masuk 1.351.000, keluar 2.387.000, 10 baris; **Semua Data** → masuk 29.807.000, keluar 22.421.000, saldo akhir **7.386.000** (= posisi kas di aplikasi), 115 baris.
+- Unit test memakai 10 baris asli Juli 2026: saldo berjalan yang dihitung kode **sama persis dengan kolom Saldo di buku kas tulis user** (7.816.000 → 7.516.000 → 7.816.000 → 7.516.000 → 6.591.000 → 6.479.000 → 5.979.000 → 5.879.000 → 5.729.000 → 6.410.000). Total 44 tes baru (33 penyamar + 11 ledger) lulus; suite backend 138 lulus, 2 file gagal = tes DB yang gagal di baseline juga.
+- Render dari fixture data asli: kartu gambar, PDF (ekstraksi teks pdfjs: "Halaman N dari 7", header tabel berulang di halaman 4–7), halaman Vue asli lewat Puppeteer dengan API di-intercept (117 `<tr>` untuk 115 transaksi + Saldo awal + Jumlah; `thead` = `table-header-group` saat media print).
+
+**Urutan deploy (halaman publik sedang LIVE)**: frontend dulu dengan guard `v-if="report.data.ledger"` (kartu Buku Kas tersembunyi bila API masih versi lama), baru backend. Frontend & backend deploy terpisah (Cloudflare vs Render); kalau backend duluan, frontend lama akan crash membaca `data.movements` yang sudah tidak ada. Pelajaran umum: kalau mengubah bentuk respons API publik yang sedang live, deploy sisi konsumen yang toleran dulu.
+
+### 0.3 Temuan data: buku kas tulis lebih baru daripada aplikasi
+
+Foto buku kas user memuat **5 transaksi yang belum ada di aplikasi**: 29 Agu "Transport Lintas Ranting PRA Sawahan" −250.000; 29 Agu "konsumsi Lintas Ranting" −500.000; 18 Sep "Infaq pertemuan PCA" +570.000; 16 Okt "Acara GLHA & persiapan kantor" −1.350.000; 16 Okt "Infaq Anggota" +330.000. Saldo aplikasi **Rp7.386.000** vs saldo terakhir buku **Rp6.186.000**; selisih **−1.200.000** persis sama dengan jumlah kelima baris itu (−250 −500 +570 −1.350 +330 = −1.200), jadi bacaan tulisan tangan konsisten secara aritmetika. ("Sisa dana Baitul Arqom" +776.000 buku tertanggal 3/9, di aplikasi tertanggal 23-08 — transaksi sama, beda tanggal.) **Belum diimpor — menunggu keputusan user** (fitur "Impor Rekapan Kas" ada, atau dimasukkan langsung).
+
+### 0.4 Gotcha alat yang ditemukan sesi ini
+- **Neon MCP `run_sql` sekarang butuh `project_id` (snake_case)**, bukan `projectId` — skema yang ditampilkan tool masih bilang `projectId`, tapi server menolaknya ("Unrecognized key(s): projectId"). Panggil dengan `project_id`. Project: `weathered-heart-75887530`.
+- Tool deferred (mis. `run_sql`) harus dimuat lewat ToolSearch sebelum dipanggil.
+- `Read` tidak bisa render PDF di mesin ini (`pdftoppm` tidak ada). Verifikasi PDF: `pdfjs-dist@3` diinstal di folder scratch (bukan repo) dan ekstrak teks per halaman — cukup untuk cek jumlah halaman, footer, dan header tabel berulang.
+- Jangan `... | grep | sed` untuk proses yang lama — pipa menahan output sampai selesai dan terlihat "hang"; arahkan output ke file log lalu baca.
+- `preview_stop` untuk dev server Vite yang saya mulai sempat ditolak classifier otomatis; server `localhost:5173` mungkin masih jalan (hentikan manual kalau `pnpm dev` user bentrok port — `strictPort: true`).
 
 ---
 

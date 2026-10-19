@@ -21,6 +21,14 @@ const MONTH_NAMES_ID = [
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ];
 
+const MONTH_ABBR_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+/** "2026-08-04" -> "04 Agu 2026" (string math: no timezone to get wrong). */
+function formatDateShort(isoDate: string): string {
+  const [y, m, d] = isoDate.slice(0, 10).split('-');
+  return `${d} ${MONTH_ABBR_ID[Number(m) - 1] ?? m} ${y}`;
+}
+
 export function renderPublicFinancePdfHtml(
   report: PublicFinanceReportResponse,
   publicUrl: string,
@@ -113,23 +121,61 @@ export function renderPublicFinancePdfHtml(
         .join('')
     : `<tr><td colspan="2" style="text-align: center; color: #6b7280; font-style: italic;">Belum ada data pengeluaran</td></tr>`;
 
-  const movementsRows = (report.data.movements ?? []).length
-    ? report.data.movements
+  // Buku Kas: the same TGL | Keterangan | Masuk | Keluar | Saldo layout as the
+  // handwritten cash book members are used to, with Saldo awal / Jumlah rows.
+  const ledger = report.data.ledger;
+  const ledgerRows = ledger.entries.length
+    ? ledger.entries
         .map(
-          (m, idx) => `
+          (e, idx) => `
         <tr style="${idx % 2 === 1 ? 'background: #f9fafb;' : ''}">
-          <td style="color: #4b5563; font-size: 11px;">${escapeHtml(m.date.slice(0, 10))}</td>
-          <td>${escapeHtml(m.label)}</td>
-          <td style="text-align: right; font-weight: 600; color: #047857;">
-            ${m.direction === 'income' ? formatRupiah(m.amount) : '—'}
-          </td>
-          <td style="text-align: right; font-weight: 600; color: #b45309;">
-            ${m.direction === 'expense' ? formatRupiah(m.amount) : '—'}
-          </td>
+          <td class="nowrap" style="color: #4b5563; font-size: 11px;">${escapeHtml(formatDateShort(e.date))}</td>
+          <td>${escapeHtml(e.keterangan)}</td>
+          <td class="num" style="color: #047857;">${Number(e.masuk) > 0 ? formatRupiah(e.masuk) : ''}</td>
+          <td class="num" style="color: #b45309;">${Number(e.keluar) > 0 ? formatRupiah(e.keluar) : ''}</td>
+          <td class="num" style="font-weight: 600;">${formatRupiah(e.saldo)}</td>
         </tr>`,
         )
         .join('')
-    : `<tr><td colspan="4" style="text-align: center; color: #6b7280; font-style: italic; padding: 14px;">Belum ada mutasi transaksi pada periode ini</td></tr>`;
+    : `<tr><td colspan="5" style="text-align: center; color: #6b7280; font-style: italic; padding: 14px;">Belum ada transaksi kas pada periode ini</td></tr>`;
+
+  const ledgerSection = `
+  <div style="margin-top: 14px;">
+    <div class="section-head">Buku Kas — ${escapeHtml(periodLabel)}</div>
+    <table class="report-table ledger">
+      <thead>
+        <tr>
+          <th style="width: 14%;">Tanggal</th>
+          <th style="width: 36%;">Keterangan</th>
+          <th style="width: 16.6%; text-align: right;">Masuk</th>
+          <th style="width: 16.6%; text-align: right;">Keluar</th>
+          <th style="width: 16.8%; text-align: right;">Saldo</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background: #f3f4f6; font-weight: 700;">
+          <td></td>
+          <td>Saldo awal</td>
+          <td></td>
+          <td></td>
+          <td class="num">${formatRupiah(ledger.openingBalance)}</td>
+        </tr>
+        ${ledgerRows}
+        <tr style="background: #e5e7eb; font-weight: 800; border-top: 2px solid #111827;">
+          <td></td>
+          <td>Jumlah</td>
+          <td class="num" style="color: #047857;">${formatRupiah(ledger.totalMasuk)}</td>
+          <td class="num" style="color: #b45309;">${formatRupiah(ledger.totalKeluar)}</td>
+          <td class="num">${formatRupiah(ledger.closingBalance)}</td>
+        </tr>
+      </tbody>
+    </table>
+    ${
+      ledger.truncated
+        ? `<div style="font-size: 10.5px; color: #6b7280; font-style: italic;">Hanya ${ledger.entries.length} baris pertama yang ditampilkan — persempit periode untuk melihat sisanya.</div>`
+        : ''
+    }
+  </div>`;
 
   const monthlyTables = isAllTime && annualSummary.length
     ? annualSummary
@@ -283,6 +329,11 @@ export function renderPublicFinancePdfHtml(
       padding: 6px 8px;
       border: 1px solid #d1d5db;
     }
+    .report-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .report-table .nowrap { white-space: nowrap; }
+    /* Buku Kas can run to many pages: repeat the header, never split a row. */
+    .ledger thead { display: table-header-group; }
+    .ledger tr { page-break-inside: avoid; }
     .columns-2 {
       display: table;
       width: 100%;
@@ -450,26 +501,11 @@ export function renderPublicFinancePdfHtml(
   <!-- Detailed Monthly breakdown tables per year -->
   ${monthlyTables}
   `
-      : `
-  <!-- Movements table for specific period -->
-  <div style="margin-top: 14px;">
-    <div class="section-head">Daftar Mutasi Transaksi — ${escapeHtml(periodLabel)}</div>
-    <table class="report-table">
-      <thead>
-        <tr>
-          <th style="width: 18%;">Tanggal</th>
-          <th style="width: 42%;">Kategori Transaksi</th>
-          <th style="width: 20%; text-align: right;">Masuk</th>
-          <th style="width: 20%; text-align: right;">Keluar</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${movementsRows}
-      </tbody>
-    </table>
-  </div>
-  `
+      : ''
   }
+
+  <!-- Buku Kas: every period, including all-time (after the monthly recap) -->
+  ${ledgerSection}
 
   <!-- Formal Signatures -->
   <div class="signature-section">
@@ -492,7 +528,7 @@ export function renderPublicFinancePdfHtml(
 
   <div class="footer-note">
     <div>Diterbitkan secara resmi melalui platform MizanMu &middot; Tautan verifikasi: ${escapeHtml(publicUrl)}</div>
-    <div>Halaman 1 dari 1 (Dokumen Sah)</div>
+    <div>Dokumen Sah</div>
   </div>
 </body>
 </html>`;

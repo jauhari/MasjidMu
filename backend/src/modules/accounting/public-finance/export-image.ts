@@ -96,27 +96,54 @@ function annualRecapTableHtml(trend: PublicFinanceReportResponse['data']['monthl
   </div>`;
 }
 
-function movementsTableHtml(movements: PublicFinanceReportResponse['data']['movements']): string {
-  if (!movements || !movements.length) return '';
-  const rows = movements.slice(0, 8).map((m, i) => {
+const MONTH_ABBR_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+/** Rows shown on the share card; the full Buku Kas lives on the page/PDF. */
+const LEDGER_CARD_ROWS = 10;
+
+/** "2026-08-04" -> "04 Agu" (string math: no timezone to get wrong). */
+function shortDate(isoDate: string): string {
+  const [, m, d] = isoDate.slice(0, 10).split('-');
+  return `${d} ${MONTH_ABBR_ID[Number(m) - 1] ?? m}`;
+}
+
+/** Buku Kas card: TGL | Keterangan | Masuk | Keluar | Saldo, the layout of the handwritten cash book. */
+function ledgerTableHtml(ledger: PublicFinanceReportResponse['data']['ledger']): string {
+  if (!ledger || !ledger.entries.length) return '';
+  const shown = ledger.entries.slice(-LEDGER_CARD_ROWS);
+  const hidden = ledger.entries.length - shown.length;
+  const rows = shown.map((e, i) => {
     const shade = i % 2 === 1 ? 'background:#f7faf8;' : '';
     return `<tr style="${shade}">
-      <td class="tc-month" style="color: #5b6b62; font-size: 19px;">${escapeHtml(m.date.slice(0, 10))}</td>
-      <td class="tc-month" style="font-size: 20px;">${escapeHtml(m.label)}</td>
-      <td class="tc-num tc-income" style="font-size: 20px;">${m.direction === 'income' ? formatRupiah(m.amount) : '—'}</td>
-      <td class="tc-num tc-expense" style="font-size: 20px;">${m.direction === 'expense' ? formatRupiah(m.amount) : '—'}</td>
+      <td class="tc-month" style="color: #5b6b62; font-size: 18px; white-space: nowrap;">${escapeHtml(shortDate(e.date))}</td>
+      <td class="tc-month" style="font-size: 19px; font-weight: 500; line-height: 1.25;">${escapeHtml(e.keterangan)}</td>
+      <td class="tc-num tc-income" style="font-size: 19px;">${Number(e.masuk) > 0 ? formatRupiah(e.masuk) : ''}</td>
+      <td class="tc-num tc-expense" style="font-size: 19px;">${Number(e.keluar) > 0 ? formatRupiah(e.keluar) : ''}</td>
+      <td class="tc-num" style="font-size: 19px; font-weight: 800;">${formatRupiah(e.saldo)}</td>
     </tr>`;
   }).join('');
+  const note = hidden > 0
+    ? `<tr><td colspan="5" style="font-size: 17px; font-weight: 500; font-style: italic; color: #93a29a; padding: 10px 4px;">… ${hidden} transaksi sebelumnya ada di halaman lengkap</td></tr>`
+    : '';
   return `<div class="card">
-    <div class="stat-label" style="margin-bottom: 14px;">Mutasi Transaksi Periode Ini</div>
+    <div class="stat-label" style="margin-bottom: 14px;">Buku Kas Periode Ini</div>
     <table class="trend-table">
       <thead><tr>
-        <th class="tc-month" style="width: 20%;">Tanggal</th>
-        <th class="tc-month" style="width: 40%;">Kategori</th>
-        <th class="tc-num" style="width: 20%;">Masuk</th>
-        <th class="tc-num" style="width: 20%;">Keluar</th>
+        <th class="tc-month" style="width: 12%;">Tgl</th>
+        <th class="tc-month" style="width: 32%;">Keterangan</th>
+        <th class="tc-num" style="width: 18%;">Masuk</th>
+        <th class="tc-num" style="width: 18%;">Keluar</th>
+        <th class="tc-num" style="width: 20%;">Saldo</th>
       </tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody>
+        ${note}
+        ${rows}
+        <tr style="border-top: 2px solid #16241c;">
+          <td class="tc-month" colspan="2" style="font-size: 19px; font-weight: 800;">Jumlah</td>
+          <td class="tc-num tc-income" style="font-size: 19px; font-weight: 800;">${formatRupiah(ledger.totalMasuk)}</td>
+          <td class="tc-num tc-expense" style="font-size: 19px; font-weight: 800;">${formatRupiah(ledger.totalKeluar)}</td>
+          <td class="tc-num" style="font-size: 19px; font-weight: 800;">${formatRupiah(ledger.closingBalance)}</td>
+        </tr>
+      </tbody>
     </table>
   </div>`;
 }
@@ -242,7 +269,7 @@ export function renderPublicFinanceHtml(
         </div>
       </div>
 
-      ${includeTrend ? annualRecapTableHtml(report.data.monthlyTrend) : movementsTableHtml(report.data.movements)}
+      ${includeTrend ? annualRecapTableHtml(report.data.monthlyTrend) : ledgerTableHtml(report.data.ledger)}
     </div>
 
     <div class="footer">

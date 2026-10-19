@@ -64,6 +64,7 @@ import {
   getPublicFinanceStatus,
   publishPublicFinance,
   revokePublicFinance,
+  updatePublicFinanceSettings,
 } from '../public-finance/service.js';
 
 function resolveFormat(raw: string | undefined): ExportFormat {
@@ -233,6 +234,22 @@ export const reportsRoute = new Hono<{
     });
     return c.json({ data: row });
   })
+
+  // Opt-in for showing (name-masked) transaction descriptions in the public
+  // Buku Kas. Needs an existing row -- i.e. the report was published at least once.
+  .patch(
+    '/public-finance/settings',
+    requirePermission('reports.publish'),
+    zValidator('json', z.object({ showDescriptions: z.boolean() })),
+    async (c) => {
+      const row = await updatePublicFinanceSettings({
+        tenantId: c.get('tenantId')!,
+        showDescriptions: c.req.valid('json').showDescriptions,
+      });
+      if (!row) return c.json({ error: 'not_published_yet' }, 409);
+      return c.json({ data: row });
+    },
+  )
 
   // For each route we evaluate the permission against the requested format.
   // The handler computes `format` again, so we just gate at the broader level
