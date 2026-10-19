@@ -25,11 +25,24 @@ interface MonthlyAmount {
   expense: string;
 }
 
-interface PublicMovement {
+/** Buku Kas row: the same TGL | Keterangan | Masuk | Keluar | Saldo as the handwritten cash book. */
+interface LedgerEntry {
   date: string;
-  direction: 'income' | 'expense';
-  label: string;
-  amount: string;
+  keterangan: string;
+  masuk: string;
+  keluar: string;
+  saldo: string;
+}
+
+interface CashLedger {
+  openingBalance: string;
+  closingBalance: string;
+  totalMasuk: string;
+  totalKeluar: string;
+  entries: LedgerEntry[];
+  truncated: boolean;
+  /** true when keterangan carries (name-masked) transaction descriptions instead of category names */
+  descriptionsVisible: boolean;
 }
 
 interface PublicFinanceReport {
@@ -43,7 +56,7 @@ interface PublicFinanceReport {
     topIncome: CategoryAmount[];
     topExpense: CategoryAmount[];
     monthlyTrend: MonthlyAmount[];
-    movements: PublicMovement[];
+    ledger: CashLedger;
   };
 }
 
@@ -51,6 +64,7 @@ const MONTH_NAME_ID = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ];
+const MONTH_ABBR_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
 const route = useRoute();
 const now = new Date();
@@ -143,10 +157,12 @@ const treasurerName = computed(() => {
   return '( ................................ )';
 });
 
-function formatDate(value: string): string {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value.slice(0, 10);
-  return new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }).format(d);
+/** "2026-08-04" -> "04 Agu 2026". String math on purpose: a date-only value
+ * run through `new Date()` is UTC midnight and shows as the previous day in
+ * any timezone behind UTC. */
+function formatLedgerDate(isoDate: string): string {
+  const [y, m, d] = isoDate.slice(0, 10).split('-');
+  return `${d} ${MONTH_ABBR_ID[Number(m) - 1] ?? m} ${y}`;
 }
 
 /** Tabel per tahun, terbaru dulu -- semua 12 bulan ditampilkan (bulan
@@ -365,38 +381,6 @@ onMounted(() => { void load(); });
           </Card>
         </div>
 
-        <Card v-if="periodMode !== 'all'">
-          <CardContent class="space-y-4 p-4 sm:p-5">
-            <div class="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-              <h2 class="text-sm font-bold text-foreground">Mutasi Transaksi</h2>
-              <p class="text-xs text-muted-foreground">{{ report.period.label }}</p>
-            </div>
-            <div class="overflow-x-auto">
-              <Table>
-                <thead>
-                  <tr class="border-b border-border bg-muted/50">
-                    <th class="rounded-l-lg px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tanggal</th>
-                    <th class="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Kategori</th>
-                    <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Masuk</th>
-                    <th class="rounded-r-lg px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Keluar</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-if="!report.data.movements.length">
-                    <td colspan="4" class="px-3 py-10 text-center text-sm text-muted-foreground">Belum ada transaksi pada periode ini.</td>
-                  </tr>
-                  <tr v-for="(m, i) in report.data.movements" :key="i" class="border-b border-border/60" :class="i % 2 === 1 ? 'bg-muted/20' : ''">
-                    <td class="px-3 py-2 text-sm tabular-nums text-muted-foreground">{{ formatDate(m.date) }}</td>
-                    <td class="px-3 py-2 text-sm text-foreground">{{ m.label }}</td>
-                    <td class="px-3 py-2 text-right text-sm"><MoneyText v-if="m.direction === 'income'" :value="m.amount" tone="income" /><span v-else class="text-muted-foreground">&mdash;</span></td>
-                    <td class="px-3 py-2 text-right text-sm"><MoneyText v-if="m.direction === 'expense'" :value="m.amount" tone="expense" /><span v-else class="text-muted-foreground">&mdash;</span></td>
-                  </tr>
-                </tbody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-
         <Card v-if="periodMode === 'all' && trendByYear.length">
           <CardContent class="space-y-6 p-4 sm:p-5">
             <h2 class="text-sm font-bold text-foreground">Rincian Bulanan</h2>
@@ -428,6 +412,63 @@ onMounted(() => { void load(); });
                 </tbody>
               </Table>
             </div>
+          </CardContent>
+        </Card>
+
+        <!-- Buku Kas: same layout as the handwritten cash book (TGL | Keterangan | Masuk | Keluar | Saldo).
+             v-if: during a deploy the page can briefly talk to the previous API version (no `ledger`
+             yet) -- hide the card instead of crashing the whole public page. -->
+        <Card v-if="report.data.ledger">
+          <CardContent class="space-y-4 p-4 sm:p-5">
+            <div class="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+              <h2 class="text-sm font-bold text-foreground">Buku Kas</h2>
+              <p class="text-xs text-muted-foreground">{{ report.period.label }}</p>
+            </div>
+            <div class="overflow-x-auto">
+              <Table class="ledger-table">
+                <thead>
+                  <tr class="border-b border-border bg-muted/50">
+                    <th class="rounded-l-lg px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tanggal</th>
+                    <th class="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Keterangan</th>
+                    <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Masuk</th>
+                    <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Keluar</th>
+                    <th class="rounded-r-lg px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Saldo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="border-b border-border bg-muted/30 font-semibold">
+                    <td class="px-3 py-2"></td>
+                    <td class="px-3 py-2 text-sm text-foreground">Saldo awal</td>
+                    <td class="px-3 py-2"></td>
+                    <td class="px-3 py-2"></td>
+                    <td class="px-3 py-2 text-right text-sm"><MoneyText :value="report.data.ledger.openingBalance" tone="none" /></td>
+                  </tr>
+                  <tr v-if="!report.data.ledger.entries.length">
+                    <td colspan="5" class="px-3 py-10 text-center text-sm text-muted-foreground">Belum ada transaksi kas pada periode ini.</td>
+                  </tr>
+                  <tr v-for="(e, i) in report.data.ledger.entries" :key="i" class="border-b border-border/60" :class="i % 2 === 1 ? 'bg-muted/20' : ''">
+                    <td class="whitespace-nowrap px-3 py-2 text-sm tabular-nums text-muted-foreground">{{ formatLedgerDate(e.date) }}</td>
+                    <td class="min-w-[180px] px-3 py-2 text-sm text-foreground">{{ e.keterangan }}</td>
+                    <td class="whitespace-nowrap px-3 py-2 text-right text-sm"><MoneyText v-if="Number(e.masuk) > 0" :value="e.masuk" tone="income" /></td>
+                    <td class="whitespace-nowrap px-3 py-2 text-right text-sm"><MoneyText v-if="Number(e.keluar) > 0" :value="e.keluar" tone="expense" /></td>
+                    <td class="whitespace-nowrap px-3 py-2 text-right text-sm font-medium"><MoneyText :value="e.saldo" tone="none" /></td>
+                  </tr>
+                  <tr class="border-t-2 border-border bg-primary/5 font-bold">
+                    <td class="px-3 py-2.5"></td>
+                    <td class="px-3 py-2.5 text-sm">Jumlah</td>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-right text-sm"><MoneyText :value="report.data.ledger.totalMasuk" tone="income" /></td>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-right text-sm"><MoneyText :value="report.data.ledger.totalKeluar" tone="expense" /></td>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-right text-sm"><MoneyText :value="report.data.ledger.closingBalance" tone="none" /></td>
+                  </tr>
+                </tbody>
+              </Table>
+            </div>
+            <p v-if="report.data.ledger.truncated" class="text-xs italic text-muted-foreground">
+              Hanya {{ report.data.ledger.entries.length }} baris pertama yang ditampilkan — persempit periode untuk melihat sisanya.
+            </p>
+            <p v-if="report.data.ledger.descriptionsVisible" class="text-xs text-muted-foreground">
+              Nama pribadi pada keterangan disamarkan untuk menjaga privasi.
+            </p>
           </CardContent>
         </Card>
 
@@ -506,6 +547,14 @@ onMounted(() => { void load(); });
   th {
     background-color: #f3f4f6 !important;
     color: #111827 !important;
+  }
+  /* Buku Kas can run to many pages: repeat the header on each, never split a row. */
+  .ledger-table thead {
+    display: table-header-group;
+  }
+  .ledger-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
   .card, header {
     box-shadow: none !important;

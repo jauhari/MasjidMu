@@ -29,6 +29,31 @@ const typeBadge: Record<ChangeEntry['type'], { icon: unknown; label: string; cls
 
 const entries: ChangeEntry[] = [
   {
+    date: '2026-10-19',
+    type: 'feature',
+    title: 'Buku Kas: Laporan Publik dengan Format Buku Kas Tulis (Keterangan + Saldo Berjalan)',
+    description:
+      'Daftar transaksi di Transparansi Keuangan kini berformat buku kas tulis yang familiar: Tanggal | Keterangan | Masuk | Keluar | Saldo, lengkap dengan Saldo awal dan baris Jumlah, di halaman, cetak, PDF, dan gambar WhatsApp. Saldo dihitung langsung dari jurnal kas sehingga selalu cocok dengan angka di buku. Keterangan transaksi (mis. "Transport SWA") bisa ditampilkan lewat saklar baru di kartu Transparansi Keuangan Umum — nama setelah Bu/B./Pak/P. otomatis disamarkan ("Infaq Bu Rohmi" menjadi "Infaq Bu R***"). Default mati: laporan publik yang sudah live tetap hanya menampilkan nama kategori sampai saklar diaktifkan.',
+    files: [
+      'modules/accounting/reports/services/cash-ledger.ts',
+      'lib/mask-personal-names.ts',
+      'modules/accounting/public-finance/service.ts',
+      'modules/accounting/public-finance/export-pdf.ts',
+      'modules/accounting/public-finance/export-image.ts',
+      'features/public-finance/PublicFinanceView.vue',
+      'features/reports/ReportsView.vue',
+      'db/migrations/sql/098_public_finance_show_descriptions.sql',
+    ],
+  },
+  {
+    date: '2026-10-19',
+    type: 'fix',
+    title: 'Tautan Laporan Publik Tidak Lagi Bergantung pada Service Worker',
+    description:
+      'Membuka tautan /transparansi/* (dari WhatsApp atau tombol "Buka") kini selalu langsung ke server, bukan lewat cache service worker PWA. Mencegah halaman "This site can\'t be reached (ERR_FAILED)" di browser yang service worker-nya rusak atau cache-nya hilang, padahal server sehat.',
+    files: ['vite.config.ts'],
+  },
+  {
     date: '2026-09-18',
     type: 'ui',
     title: 'Pengesahan Pejabat Resmi pada Laporan Keuangan PCA Ponjong',

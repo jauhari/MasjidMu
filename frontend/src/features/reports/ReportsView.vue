@@ -37,6 +37,7 @@ import ConfirmDialog from '@/shared/ui/ConfirmDialog.vue';
 import DatePicker from '@/shared/ui/DatePicker.vue';
 import PageHeader from '@/shared/ui/PageHeader.vue';
 import AppSelect from '@/shared/ui/AppSelect.vue';
+import AppCheckbox from '@/shared/ui/AppCheckbox.vue';
 import MoneyText from '@/shared/ui/MoneyText.vue';
 
 type ReportType =
@@ -134,6 +135,8 @@ interface PublicPapStatus {
 
 interface PublicFinanceStatus {
   isPublished: boolean;
+  /** Show (name-masked) transaction descriptions in the public Buku Kas. */
+  showDescriptions: boolean;
   publishedAt: string | null;
   revokedAt: string | null;
   updatedAt: string;
@@ -406,6 +409,24 @@ async function revokePublicFinance(): Promise<void> {
   }
 }
 
+/** Optimistic: the checkbox is controlled by the status, so flip it first and roll back if the save fails. */
+async function setFinanceShowDescriptions(value: boolean): Promise<void> {
+  const current = publicFinanceStatus.value;
+  if (!current) return;
+  publicFinanceStatus.value = { ...current, showDescriptions: value };
+  publicFinanceSaving.value = true;
+  publicFinanceError.value = null;
+  try {
+    await api.patch('/api/v1/reports/public-finance/settings', { showDescriptions: value });
+  } catch (err) {
+    publicFinanceStatus.value = current;
+    const e = err as { body?: { error?: string; detail?: string }; message?: string };
+    publicFinanceError.value = e.body?.detail ?? e.body?.error ?? e.message ?? 'Gagal menyimpan pengaturan';
+  } finally {
+    publicFinanceSaving.value = false;
+  }
+}
+
 async function copyPublicFinanceUrl(): Promise<void> {
   await navigator.clipboard?.writeText(publicFinanceUrl.value);
 }
@@ -667,6 +688,21 @@ watch(
             <span class="text-xs text-muted-foreground">s/d</span>
             <DatePicker v-model="financeDateTo" placeholder="Sampai tgl" />
           </template>
+        </div>
+
+        <div class="space-y-1.5 rounded-xl border bg-muted/20 px-3 py-2.5">
+          <AppCheckbox
+            :model-value="publicFinanceStatus?.showDescriptions ?? false"
+            :disabled="publicFinanceSaving || !publicFinanceStatus"
+            label="Tampilkan keterangan transaksi di Buku Kas publik"
+            @update:model-value="setFinanceShowDescriptions"
+          />
+          <p class="pl-6 text-xs leading-relaxed text-muted-foreground">
+            Menampilkan keterangan seperti di buku kas tulis (mis. "Transport SWA", "Snack parenting"). Nama setelah
+            Bu / B. / Pak / P. disamarkan otomatis ("Infaq Bu Rohmi" menjadi "Infaq Bu R***"); nama yang ditulis
+            tanpa sebutan tidak terdeteksi, jadi periksa keterangan transaksi Anda dulu. Dimatikan = hanya nama kategori.
+            <span v-if="!publicFinanceStatus">Aktif setelah laporan dipublikasikan sekali.</span>
+          </p>
         </div>
 
         <div class="flex flex-wrap gap-2">
