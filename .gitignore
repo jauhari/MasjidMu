@@ -16,3 +16,6 @@ coverage
 !.vscode/settings.json
 .idea
 *.tsbuildinfo
+
+# graphify knowledge graph (built locally with /graphify, not committed)
+graphify-out/

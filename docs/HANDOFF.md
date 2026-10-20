@@ -76,6 +76,20 @@ Foto buku kas user memuat **5 transaksi yang belum ada di aplikasi**: 29 Agu "Tr
 
 **Catatan data yang terlihat di cetak Semua Data**: beberapa baris awal Buku Kas 2023 bersaldo minus (−80.000 … −2.500) karena penerimaan 1.590.000 tertanggal 26 Agu 2023 jatuh SETELAH pengeluaran pertama (Feb–Mar 2023) — urutan tanggal data aslinya, bukan bug cetak. Kalau tidak ingin ada saldo minus, ubah tanggal transaksi saldo awal itu.
 
+### 0.6 Temuan keamanan + bersih-bersih dari graph graphify (2026-10-20)
+
+**KEBOCORAN KREDENSIAL — MASIH TERBUKA sampai user memutar (rotate) password.** `docs/HANDOFF.md` baris 249 memuat connection string `DATABASE_URL_OWNER` lengkap dengan password role `neondb_owner` (bentuk `npg_…` 16 karakter, tampak asli) di repo GitHub **PUBLIK** `jauhari/MasjidMu`, masuk lewat commit `c2dc1bd` ("docs(HANDOFF): update §7b with DATABASE_URL_OWNER root cause for cron 500"). Role owner = DDL penuh + BYPASSRLS → akses ke data SEMUA tenant. Ditemukan agen ekstraksi dokumen graphify saat membangun graph; diverifikasi bentuknya saja (nilai tidak pernah ditampilkan). Yang sudah dilakukan: password di HEAD diganti placeholder `<NEON_OWNER_PASSWORD_ROTATED>`. **Redaksi saja TIDAK cukup**: riwayat git (commit `c2dc1bd`), fork, dan cache pencarian tetap menyimpannya → **wajib rotate**: Neon Console → project MasjidMu → Roles → `neondb_owner` → Reset password, lalu perbarui semua env var yang memakai role itu (Render: `DATABASE_URL_OWNER`, dan `DATABASE_URL` bila juga owner; GitHub Actions secrets seperti yang dipakai `cron-pg-dump.yml`) dan redeploy Render. Jangan rewrite history/force-push — tidak menolong karena sudah publik; rotasi yang menutup risikonya. Scan pola secret lain di HEAD: bersih (hanya placeholder `.env.example`).
+
+**Cron `Create monthly partition` gagal tiap bulan.** `.github/workflows/cron-create-partition.yml` (tgl 28 pukul 23:47 UTC) memanggil `POST https://api.masjidmu.id/jobs/create-monthly-partition`, padahal backend hanya punya `POST /jobs/refresh-mv` dan host API sebenarnya `masjidmu-backend.onrender.com`. 4 run terakhir (Jun–Sep 2026) gagal. **Tidak ada risiko outage**: query Neon menunjukkan TIDAK ADA tabel berpartisi di skema `public`, jadi cron ini sisa rencana lama. Saran: hapus workflow itu (atau implementasikan endpoint-nya bila partisi memang direncanakan) supaya tidak ada email gagal tiap bulan.
+
+**Dokumen yang saling bertentangan** (ditandai graph sebagai edge AMBIGUOUS): README masih menyebut Railway padahal `RENDER.md`/HANDOFF = Render; README menulis port dev 3000 vs HANDOFF 3001; `PAP_IMPORT.md` menyebut model OCR `claude-opus-4-8` vs HANDOFF = Sonnet; tiga domain API berbeda tersebar di dokumen (`api.masjidmu.id`, `api.hisabmu.id`, `api.mizanmu.id`).
+
+### 0.7 Graphify — knowledge graph repo ini
+
+- Terpasang global (`uv tool`, graphifyy 0.9.92 + extra `[sql]`); skill `/graphify` di `~/.claude/skills/graphify`. Graph repo ini dibangun 2026-10-20 ke `graphify-out/` (`graph.html`, `graph.json`, `GRAPH_REPORT.md`; sudah di-`.gitignore`, tidak di-commit): 3.351 node, 7.444 edge, 156 komunitas (97% EXTRACTED). God nodes: `vue`, `cn()`, `withTenant()`, `reka-ui`, `drizzle-orm`, `asSuperAdmin()`.
+- Bangun ulang: `graphify update .` (kode saja, gratis, tanpa LLM) atau `/graphify . --update` (termasuk dokumen; memakai agen — mahal, pertama kali ±644K token untuk 22 dokumen/gambar). Tanya graph dari root repo: `graphify query "..."`, `graphify path "A" "B"`, `graphify explain "X"` (kalau `graphify` belum dikenal, buka terminal baru — PATH sudah ditambah — atau pakai `C:\Users\RYZEN\.local\bin\graphify.exe`).
+- Tanpa extra `[sql]` (`uv tool install --force "graphifyy[sql]"`) 20 migrasi SQL diabaikan diam-diam (hanya tampil sebagai warning saat ekstraksi).
+
 ---
 
 ## 1. Ringkasan Sesi Terakhir (Transparansi Keuangan Umum + fix Mat-View Basi)
@@ -246,7 +260,7 @@ Dua bug kritis diperbaiki dalam sesi ini:
 
 **Langkah yang harus dilakukan user:**
 1. Buka Render Dashboard → service `masjidmu-backend` → Environment
-2. Tambah env var baru: `DATABASE_URL_OWNER` = `postgresql://neondb_owner:npg_rjJf2U5TNBtM@ep-summer-firefly-aob90kp0-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require`
+2. Tambah env var baru: `DATABASE_URL_OWNER` = `postgresql://neondb_owner:<NEON_OWNER_PASSWORD_ROTATED>@ep-summer-firefly-aob90kp0-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require`
 3. Deploy ulang (Render auto-deploy saat env berubah)
 4. Trigger workflow manual: `gh workflow run "Cron — Refresh materialized views"`
 
