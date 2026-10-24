@@ -73,5 +73,22 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('vue') || id.includes('pinia') || id.includes('better-auth')) {
+              return 'vendor-core';
+            }
+            if (id.includes('reka-ui') || id.includes('lucide-vue-next') || id.includes('radix-vue')) {
+              return 'vendor-ui';
+            }
+            if (id.includes('date-fns') || id.includes('@internationalized/date')) {
+              return 'vendor-dates';
+            }
+          }
+        },
+      },
+    },
   },
 });

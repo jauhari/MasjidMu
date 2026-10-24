@@ -89,6 +89,10 @@ app.get('/healthz', (c) =>
   c.json({ status: 'ok', time: new Date().toISOString(), version: '0.0.0' }),
 );
 
+app.get('/api/healthz', (c) =>
+  c.json({ status: 'ok', time: new Date().toISOString(), version: '0.0.0' }),
+);
+
 app.get('/', (c) => c.text('MizanMu API v2'));
 
 // ─── Auth ────────────────────────────────────────────────────────────────

@@ -516,7 +516,6 @@ const unpostedCount = computed(
 /** KeepAlive: onMounted cuma sekali — load diekstrak supaya bisa di-refresh paksa. */
 async function loadDashboard(opts?: { silent?: boolean }): Promise<void> {
   const silent = !!opts?.silent;
-  clearApiGetCache();
   error.value = null;
 
   if (!silent) {
@@ -592,19 +591,41 @@ async function loadDashboard(opts?: { silent?: boolean }): Promise<void> {
     try {
       const monthStart = new Date(currentYear, currentMonth - 1, 1);
       const points = Array.from({ length: 12 }, (_, i) => subMonths(monthStart, 11 - i));
-      const results = await Promise.all(
-        points.map((d) =>
-          api.get<ActivitySummary>('/api/v1/reports/aktivitas', {
-            query: { month: d.getMonth() + 1, year: d.getFullYear() },
-          }),
-        ),
-      );
-      cashFlowMonths.value = points.map((d, i) => ({
-        month: d.getMonth() + 1,
-        year: d.getFullYear(),
-        income: Number(results[i]!.data.income.total),
-        expense: Number(results[i]!.data.expense.total),
-      }));
+
+      let trendData: Array<{ month: string; income: string; expense: string }> = [];
+      try {
+        const trendRes = await api.get<{ data: Array<{ month: string; income: string; expense: string }> }>(
+          '/api/v1/reports/cashflow-trend',
+        );
+        trendData = trendRes.data ?? [];
+      } catch {
+        // Fallback ke pemanggilan batch individual bila endpoint agregat belum tersedia
+        const results = await Promise.all(
+          points.map((d) =>
+            api.get<ActivitySummary>('/api/v1/reports/aktivitas', {
+              query: { month: d.getMonth() + 1, year: d.getFullYear() },
+            }),
+          ),
+        );
+        trendData = points.map((d, i) => ({
+          month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+          income: results[i]!.data.income.total,
+          expense: results[i]!.data.expense.total,
+        }));
+      }
+
+      const trendMap = new Map(trendData.map((t) => [t.month, t]));
+      cashFlowMonths.value = points.map((d) => {
+        const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const item = trendMap.get(mKey);
+        return {
+          month: d.getMonth() + 1,
+          year: d.getFullYear(),
+          income: item ? Number(item.income) : 0,
+          expense: item ? Number(item.expense) : 0,
+        };
+      });
+
       const availableKeys = new Set(
         cashFlowMonths.value.map((item) => cashFlowKey(item.month, item.year)),
       );
@@ -639,6 +660,7 @@ async function loadDashboard(opts?: { silent?: boolean }): Promise<void> {
 
 async function forceRefresh(): Promise<void> {
   if (refreshing.value || kpiLoading.value) return;
+  clearApiGetCache();
   await loadDashboard({ silent: true });
 }
 
@@ -651,8 +673,8 @@ onMounted(() => {
 // Kembali dari halaman lain (KeepAlive): ambil data baru tanpa skeleton penuh
 onActivated(() => {
   if (!mountedOnce) return;
-  // Skip first activate right after mount (onMounted already loads)
-  if (!lastLoadedAt.value) return;
+  // Skip bila baru dimuat kurang dari 30 detik lalu agar transisi antar menu tetap instan
+  if (lastLoadedAt.value && Date.now() - lastLoadedAt.value.getTime() < 30_000) return;
   void loadDashboard({ silent: true });
 });
 </script>

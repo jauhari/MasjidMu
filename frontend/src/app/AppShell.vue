@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import { format } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
@@ -82,11 +82,24 @@ const router = useRouter();
 const auth = useAuthStore();
 const refData = useReferenceDataStore();
 
+let pingTimer: ReturnType<typeof setInterval> | null = null;
+
 onMounted(() => {
   prefetchRoutes();
   void refData.ensureAccounts();
   void refData.ensureCategories();
   void refData.ensureFunds();
+
+  // Ping /api/healthz setiap 9 menit saat tab aktif untuk mencegah Render Free Tier hibernasi (15m idle)
+  pingTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      void fetch('/api/healthz', { cache: 'no-store' }).catch(() => {});
+    }
+  }, 9 * 60 * 1000);
+});
+
+onUnmounted(() => {
+  if (pingTimer) clearInterval(pingTimer);
 });
 
 interface NavItem {

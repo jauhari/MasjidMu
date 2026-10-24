@@ -51,6 +51,7 @@ import { buildJurnalUmum } from './services/jurnal-umum.js';
 import { buildFundUsage } from './services/fund-usage.js';
 import { buildFundLedger, FundLedgerNotFoundError } from './services/fund-ledger.js';
 import { buildConsolidatedFundUsage } from './services/consolidation.js';
+import { buildMonthlyTrend, type MonthlyAmount } from './services/monthly-trend.js';
 import { renderReportPdf } from './export/pdf.js';
 import { renderReportXlsx } from './export/xlsx.js';
 import { zValidator } from '@hono/zod-validator';
@@ -378,6 +379,17 @@ export const reportsRoute = new Hono<{
       }
       throw e;
     }
+  })
+
+  // Tren arus kas bulanan teragregasi untuk chart dashboard (mengurangi 12 HTTP request menjadi 1)
+  .get('/cashflow-trend', requirePermission('reports.read'), async (c) => {
+    const tenantId = c.get('tenantId') as string;
+    const cacheKey = `report:${tenantId}:cashflow-trend`;
+    const cached = await getCachedReport<MonthlyAmount[]>(cacheKey);
+    if (cached) return c.json({ data: cached });
+    const data = await buildMonthlyTrend({ tenantId });
+    await setCachedReport(cacheKey, data);
+    return c.json({ data });
   })
 
   // Konsolidasi multi-entitas: tenant dari sesi diperlakukan sebagai induk;

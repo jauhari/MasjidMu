@@ -434,14 +434,14 @@ function syncAmountToLines(fromInput?: string): void {
 
 async function loadReferenceData(): Promise<void> {
   try {
-    const [cats, accs, fundsRes] = await Promise.all([
+    const [cats, accs, fnds] = await Promise.all([
       refData.ensureCategories(),
       refData.ensureAccounts(),
-      api.get<{ data: Fund[] }>('/api/v1/funds'),
+      refData.ensureFunds(),
     ]);
     categories.value = cats;
     accounts.value = accs;
-    funds.value = fundsRes.data;
+    funds.value = fnds;
   } catch (err) {
     error.value = (err as Error).message;
   }
