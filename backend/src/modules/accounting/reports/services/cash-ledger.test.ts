@@ -62,7 +62,7 @@ describe('assembleCashLedger — keterangan and privacy switch', () => {
   });
 
   it('ON: the description, with personal names masked', () => {
-    const l = assembleCashLedger({ opening: JULY_OPENING, ...JULY_TOTALS, rows, showDescriptions: true });
+    const l = assembleCashLedger({ opening: JULY_OPENING, ...JULY_TOTALS, rows, showDescriptions: true, maskNames: true });
     expect(l.descriptionsVisible).toBe(true);
     expect(l.entries[2]!.keterangan).toBe('Infaq Bu R***');
     expect(l.entries[3]!.keterangan).toBe('Transport SWA');

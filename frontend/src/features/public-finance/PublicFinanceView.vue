@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { CalendarDays, FileDown, ImageDown, Printer, ShieldCheck, TrendingDown, TrendingUp, Wallet } from 'lucide-vue-next';
+import { CalendarDays, FileDown, ImageDown, List, Printer, ShieldCheck, Table2, TrendingDown, TrendingUp, Wallet } from 'lucide-vue-next';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -94,6 +94,7 @@ const month = ref(now.getMonth() + 1);
 const year = ref(now.getFullYear());
 const dateFrom = ref<string | null>(null);
 const dateTo = ref<string | null>(null);
+const ledgerViewMode = ref<'table' | 'cards'>('table');
 
 const periodModeOptions: { value: 'monthly' | 'custom' | 'all'; label: string }[] = [
   { value: 'monthly', label: 'Per Bulan' },
@@ -517,59 +518,155 @@ onBeforeUnmount(() => {
           </CardContent>
         </Card>
 
-        <!-- Buku Kas: same layout as the handwritten cash book (TGL | Keterangan | Masuk | Keluar | Saldo).
-             v-if: during a deploy the page can briefly talk to the previous API version (no `ledger`
-             yet) -- hide the card instead of crashing the whole public page. -->
-        <Card v-if="report.data.ledger">
+        <!-- Buku Kas: layout Buku Kas & spreadsheet (TGL | Keterangan | Masuk | Keluar | Saldo) -->
+        <Card v-if="report.data.ledger" class="overflow-hidden border border-border/70 shadow-sm">
           <CardContent class="space-y-4 p-4 sm:p-5">
-            <div class="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-              <h2 class="text-sm font-bold text-foreground">Buku Kas</h2>
-              <p class="text-xs text-muted-foreground">{{ report.period.label }}</p>
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 class="text-sm font-bold text-foreground">Buku Kas (Arus Kas Masuk & Keluar)</h2>
+                <p class="text-xs text-muted-foreground">{{ report.period.label }}</p>
+              </div>
+
+              <!-- View Switcher -->
+              <div class="flex items-center gap-1 self-start sm:self-auto rounded-lg border border-border/60 bg-muted/40 p-0.5">
+                <button
+                  type="button"
+                  class="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all"
+                  :class="ledgerViewMode === 'table' ? 'bg-background text-foreground shadow-xs font-semibold' : 'text-muted-foreground hover:text-foreground'"
+                  @click="ledgerViewMode = 'table'"
+                >
+                  <Table2 class="size-3.5" />
+                  <span>Tabel Kas</span>
+                </button>
+                <button
+                  type="button"
+                  class="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all"
+                  :class="ledgerViewMode === 'cards' ? 'bg-background text-foreground shadow-xs font-semibold' : 'text-muted-foreground hover:text-foreground'"
+                  @click="ledgerViewMode = 'cards'"
+                >
+                  <List class="size-3.5" />
+                  <span>Daftar Mutasi</span>
+                </button>
+              </div>
             </div>
-            <div class="overflow-x-auto">
+
+            <!-- Hint for mobile scrolling when table mode is active -->
+            <div v-if="ledgerViewMode === 'table'" class="flex items-center justify-between text-[11px] text-muted-foreground sm:hidden bg-muted/30 rounded-lg px-2.5 py-1.5 border border-border/40">
+              <span>👉 Geser tabel ke kanan untuk melihat Masuk, Keluar, dan Saldo</span>
+            </div>
+
+            <!-- TABLE VIEW (Spreadsheet-style matching Image 1) -->
+            <div v-if="ledgerViewMode === 'table'" class="overflow-x-auto rounded-xl border border-border/60">
               <Table>
                 <thead>
-                  <tr class="border-b border-border bg-muted/50">
-                    <th class="rounded-l-lg px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tanggal</th>
-                    <th class="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Keterangan</th>
-                    <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Masuk</th>
-                    <th class="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Keluar</th>
-                    <th class="rounded-r-lg px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Saldo</th>
+                  <tr class="border-b border-indigo-200/80 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-950 dark:text-indigo-200">
+                    <th class="px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wider">TGL</th>
+                    <th class="px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wider">Keterangan</th>
+                    <th class="px-3 py-2.5 text-right text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">Masuk</th>
+                    <th class="px-3 py-2.5 text-right text-[11px] font-bold uppercase tracking-wider text-rose-800 dark:text-rose-300">Keluar</th>
+                    <th class="px-3 py-2.5 text-right text-[11px] font-bold uppercase tracking-wider text-foreground">Saldo</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr class="border-b border-border bg-muted/30 font-semibold">
-                    <td class="px-3 py-2"></td>
+                  <tr class="border-b border-border bg-muted/40 font-semibold">
+                    <td class="px-3 py-2 text-xs text-muted-foreground">—</td>
                     <td class="px-3 py-2 text-sm text-foreground">Saldo awal</td>
-                    <td class="px-3 py-2"></td>
-                    <td class="px-3 py-2"></td>
-                    <td class="px-3 py-2 text-right text-sm"><MoneyText :value="report.data.ledger.openingBalance" tone="none" /></td>
+                    <td class="px-3 py-2 text-right text-xs text-muted-foreground">—</td>
+                    <td class="px-3 py-2 text-right text-xs text-muted-foreground">—</td>
+                    <td class="px-3 py-2 text-right text-sm font-bold"><MoneyText :value="report.data.ledger.openingBalance" tone="none" /></td>
                   </tr>
                   <tr v-if="!report.data.ledger.entries.length">
                     <td colspan="5" class="px-3 py-10 text-center text-sm text-muted-foreground">Belum ada transaksi kas pada periode ini.</td>
                   </tr>
-                  <tr v-for="(e, i) in report.data.ledger.entries" :key="i" class="border-b border-border/60" :class="i % 2 === 1 ? 'bg-muted/20' : ''">
-                    <td class="whitespace-nowrap px-3 py-2 text-sm tabular-nums text-muted-foreground">{{ formatLedgerDate(e.date) }}</td>
-                    <td class="min-w-[180px] px-3 py-2 text-sm text-foreground">{{ e.keterangan }}</td>
-                    <td class="whitespace-nowrap px-3 py-2 text-right text-sm"><MoneyText v-if="Number(e.masuk) > 0" :value="e.masuk" tone="income" /></td>
-                    <td class="whitespace-nowrap px-3 py-2 text-right text-sm"><MoneyText v-if="Number(e.keluar) > 0" :value="e.keluar" tone="expense" /></td>
-                    <td class="whitespace-nowrap px-3 py-2 text-right text-sm font-medium"><MoneyText :value="e.saldo" tone="none" /></td>
+                  <tr v-for="(e, i) in report.data.ledger.entries" :key="i" class="border-b border-border/50 transition-colors hover:bg-muted/10" :class="i % 2 === 1 ? 'bg-muted/20' : ''">
+                    <td class="whitespace-nowrap px-3 py-2 text-xs font-mono text-muted-foreground">{{ formatLedgerDate(e.date) }}</td>
+                    <td class="px-3 py-2 text-sm font-medium text-foreground">{{ e.keterangan }}</td>
+                    <td class="whitespace-nowrap px-3 py-2 text-right text-sm font-semibold">
+                      <span v-if="Number(e.masuk) > 0" class="text-emerald-700 dark:text-emerald-400">
+                        {{ fmtRp(e.masuk) }}
+                      </span>
+                      <span v-else class="text-muted-foreground/40 text-xs">—</span>
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-2 text-right text-sm font-semibold">
+                      <span v-if="Number(e.keluar) > 0" class="text-rose-700 dark:text-rose-400">
+                        {{ fmtRp(e.keluar) }}
+                      </span>
+                      <span v-else class="text-muted-foreground/40 text-xs">—</span>
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-2 text-right text-sm font-bold text-foreground">
+                      {{ fmtRp(e.saldo) }}
+                    </td>
                   </tr>
-                  <tr class="border-t-2 border-border bg-primary/5 font-bold">
-                    <td class="px-3 py-2.5"></td>
-                    <td class="px-3 py-2.5 text-sm">Jumlah</td>
-                    <td class="whitespace-nowrap px-3 py-2.5 text-right text-sm"><MoneyText :value="report.data.ledger.totalMasuk" tone="income" /></td>
-                    <td class="whitespace-nowrap px-3 py-2.5 text-right text-sm"><MoneyText :value="report.data.ledger.totalKeluar" tone="expense" /></td>
-                    <td class="whitespace-nowrap px-3 py-2.5 text-right text-sm"><MoneyText :value="report.data.ledger.closingBalance" tone="none" /></td>
+                  <tr class="border-t-2 border-indigo-200/80 bg-indigo-50/40 dark:bg-indigo-950/30 font-bold">
+                    <td class="px-3 py-2.5 text-xs text-muted-foreground">—</td>
+                    <td class="px-3 py-2.5 text-sm font-extrabold text-foreground">Jumlah Total</td>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-right text-sm font-extrabold text-emerald-700 dark:text-emerald-400">
+                      {{ fmtRp(report.data.ledger.totalMasuk) }}
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-right text-sm font-extrabold text-rose-700 dark:text-rose-400">
+                      {{ fmtRp(report.data.ledger.totalKeluar) }}
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-right text-sm font-extrabold text-foreground">
+                      {{ fmtRp(report.data.ledger.closingBalance) }}
+                    </td>
                   </tr>
                 </tbody>
               </Table>
             </div>
+
+            <!-- CARDS / LIST VIEW (Mobile-friendly) -->
+            <div v-else class="space-y-2.5">
+              <div class="flex items-center justify-between rounded-xl bg-muted/40 px-3.5 py-2.5 text-xs font-semibold border border-border/50">
+                <span class="text-muted-foreground">Saldo Awal</span>
+                <span class="text-sm font-bold text-foreground">{{ fmtRp(report.data.ledger.openingBalance) }}</span>
+              </div>
+
+              <div v-if="!report.data.ledger.entries.length" class="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                Belum ada transaksi kas pada periode ini.
+              </div>
+
+              <div
+                v-for="(e, i) in report.data.ledger.entries"
+                :key="i"
+                class="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-card p-3 shadow-2xs transition-colors hover:border-border"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm font-semibold text-foreground leading-snug">{{ e.keterangan }}</p>
+                    <p class="mt-0.5 text-[11px] font-mono text-muted-foreground">{{ formatLedgerDate(e.date) }}</p>
+                  </div>
+                  <div class="shrink-0 text-right">
+                    <p
+                      class="text-sm font-bold tabular-nums"
+                      :class="Number(e.masuk) > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'"
+                    >
+                      {{ Number(e.masuk) > 0 ? '+ ' : '- ' }}{{ fmtRp(Number(e.masuk) > 0 ? e.masuk : e.keluar) }}
+                    </p>
+                    <p class="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
+                      Saldo: <span class="font-semibold text-foreground">{{ fmtRp(e.saldo) }}</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 p-3.5 border border-indigo-200/80 space-y-1.5">
+                <div class="flex items-center justify-between text-xs font-semibold">
+                  <span class="text-muted-foreground">Total Masuk</span>
+                  <span class="font-bold text-emerald-700 dark:text-emerald-400">{{ fmtRp(report.data.ledger.totalMasuk) }}</span>
+                </div>
+                <div class="flex items-center justify-between text-xs font-semibold">
+                  <span class="text-muted-foreground">Total Keluar</span>
+                  <span class="font-bold text-rose-700 dark:text-rose-400">{{ fmtRp(report.data.ledger.totalKeluar) }}</span>
+                </div>
+                <div class="flex items-center justify-between text-xs font-bold pt-1.5 border-t border-indigo-200/60 dark:border-indigo-800/60">
+                  <span class="text-foreground">Saldo Akhir</span>
+                  <span class="text-sm font-extrabold text-foreground">{{ fmtRp(report.data.ledger.closingBalance) }}</span>
+                </div>
+              </div>
+            </div>
+
             <p v-if="report.data.ledger.truncated" class="text-xs italic text-muted-foreground">
               Hanya {{ report.data.ledger.entries.length }} baris pertama yang ditampilkan — persempit periode untuk melihat sisanya.
-            </p>
-            <p v-if="report.data.ledger.descriptionsVisible" class="text-xs text-muted-foreground">
-              Nama pribadi pada keterangan disamarkan untuk menjaga privasi.
             </p>
           </CardContent>
         </Card>

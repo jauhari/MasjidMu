@@ -55,8 +55,9 @@ export async function buildCashLedger(args: {
   tenantId: string;
   period: ReportPeriod;
   showDescriptions: boolean;
+  maskNames?: boolean;
 }): Promise<CashLedger> {
-  const { tenantId, period, showDescriptions } = args;
+  const { tenantId, period, showDescriptions, maskNames = false } = args;
   const start = period.startDate.toISOString();
   const end = period.endDate.toISOString();
 
@@ -123,6 +124,7 @@ export async function buildCashLedger(args: {
     totalKeluar: totals.total_keluar,
     rows,
     showDescriptions,
+    maskNames,
   });
 }
 
@@ -138,8 +140,9 @@ export function assembleCashLedger(input: {
   /** Rows in chronological order; may contain one more than MAX_LEDGER_ENTRIES to signal truncation. */
   rows: EntryRow[];
   showDescriptions: boolean;
+  maskNames?: boolean;
 }): CashLedger {
-  const { rows, showDescriptions } = input;
+  const { rows, showDescriptions, maskNames = false } = input;
   const opening = new Decimal(input.opening);
   const truncated = rows.length > MAX_LEDGER_ENTRIES;
   const visible = truncated ? rows.slice(0, MAX_LEDGER_ENTRIES) : rows;
@@ -148,9 +151,12 @@ export function assembleCashLedger(input: {
   const entries: CashLedgerEntry[] = visible.map((r) => {
     const net = new Decimal(r.net);
     running = running.plus(net);
-    const masked = showDescriptions ? maskPublicDescription(r.description) : null;
+    const rawDesc = r.description?.trim() || null;
+    const desc = showDescriptions
+      ? (maskNames ? maskPublicDescription(rawDesc) : rawDesc)
+      : null;
     const keterangan =
-      masked ?? r.category_name ?? (net.isPositive() ? 'Penerimaan' : 'Pengeluaran');
+      desc ?? r.category_name ?? (net.isPositive() ? 'Penerimaan' : 'Pengeluaran');
     return {
       date: r.d,
       keterangan,
