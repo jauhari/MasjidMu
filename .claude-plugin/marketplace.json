@@ -1,0 +1,114 @@
+{
+  "name": "masjidmu-skills",
+  "owner": {
+    "name": "jauhari"
+  },
+  "metadata": {
+    "description": "Kumpulan agent skill untuk desain, kualitas web, workflow dev, keamanan dan tulisan",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "masjidmu-design",
+      "description": "Desain UI anti-slop: impeccable, frontend-design, ui-ux-pro-max, deslop-ui",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./.claude/skills/impeccable",
+        "./.claude/skills/frontend-design",
+        "./.claude/skills/ui-ux-pro-max",
+        "./.claude/skills/deslop-ui"
+      ]
+    },
+    {
+      "name": "masjidmu-web-quality",
+      "description": "UI/UX, aksesibilitas, kecepatan dan SEO (Vercel + Web Quality Skills)",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./.claude/skills/web-design-guidelines",
+        "./.claude/skills/writing-guidelines",
+        "./.claude/skills/accessibility",
+        "./.claude/skills/best-practices",
+        "./.claude/skills/core-web-vitals",
+        "./.claude/skills/performance",
+        "./.claude/skills/seo",
+        "./.claude/skills/web-quality-audit"
+      ]
+    },
+    {
+      "name": "masjidmu-dev-workflow",
+      "description": "Kode bersih, test dan debugging (Superpowers + webapp-testing)",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./.claude/skills/brainstorming",
+        "./.claude/skills/writing-plans",
+        "./.claude/skills/executing-plans",
+        "./.claude/skills/subagent-driven-development",
+        "./.claude/skills/dispatching-parallel-agents",
+        "./.claude/skills/test-driven-development",
+        "./.claude/skills/systematic-debugging",
+        "./.claude/skills/verification-before-completion",
+        "./.claude/skills/requesting-code-review",
+        "./.claude/skills/receiving-code-review",
+        "./.claude/skills/using-git-worktrees",
+        "./.claude/skills/finishing-a-development-branch",
+        "./.claude/skills/using-superpowers",
+        "./.claude/skills/writing-skills",
+        "./.claude/skills/diagnosing-superpowers",
+        "./.claude/skills/webapp-testing"
+      ]
+    },
+    {
+      "name": "masjidmu-security",
+      "description": "Audit keamanan dari Trail of Bits",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./.claude/skills/differential-review",
+        "./.claude/skills/supply-chain-risk-auditor",
+        "./.claude/skills/sharp-edges",
+        "./.claude/skills/entry-point-analyzer",
+        "./.claude/skills/variant-analysis",
+        "./.claude/skills/fp-check",
+        "./.claude/skills/audit-context-building",
+        "./.claude/skills/property-based-testing",
+        "./.claude/skills/semgrep",
+        "./.claude/skills/codeql",
+        "./.claude/skills/sarif-parsing"
+      ]
+    },
+    {
+      "name": "masjidmu-writing",
+      "description": "Tulisan anti-slop: stop-slop, deslop-writing",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./.claude/skills/stop-slop",
+        "./.claude/skills/deslop-writing"
+      ]
+    },
+    {
+      "name": "masjidmu-remotion",
+      "description": "Membuat video dari kode dengan Remotion",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./.claude/skills/remotion-best-practices",
+        "./.claude/skills/remotion-captions",
+        "./.claude/skills/remotion-create",
+        "./.claude/skills/remotion-docs",
+        "./.claude/skills/remotion-interactivity",
+        "./.claude/skills/remotion-license",
+        "./.claude/skills/remotion-maps",
+        "./.claude/skills/remotion-markup",
+        "./.claude/skills/remotion-multimedia",
+        "./.claude/skills/remotion-render",
+        "./.claude/skills/remotion-saas",
+        "./.claude/skills/remotion-studio",
+        "./.claude/skills/remotion-upgrade"
+      ]
+    }
+  ]
+}
