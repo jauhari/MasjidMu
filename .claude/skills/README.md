@@ -19,6 +19,32 @@ Diunduh pada 2026-11-23 dari repo sumber di bawah; untuk memperbarui, salin ulan
 | | `deslop-writing` | github.com/kmaida/deslop-skills | tidak dicantumkan |
 | Video dari kode | `remotion-*` (13 skill) | github.com/remotion-dev/skills | tidak dicantumkan |
 
+## Memakai skill secara global
+
+### Claude Code di Mac / Windows / Linux (terminal, aplikasi desktop, VS Code, JetBrains)
+
+Repo ini juga berfungsi sebagai plugin marketplace (`.claude-plugin/marketplace.json`). Jalankan sekali di setiap komputer:
+
+```
+/plugin marketplace add jauhari/MasjidMu
+/plugin install masjidmu-design@masjidmu-skills
+/plugin install masjidmu-web-quality@masjidmu-skills
+/plugin install masjidmu-dev-workflow@masjidmu-skills
+/plugin install masjidmu-security@masjidmu-skills
+/plugin install masjidmu-writing@masjidmu-skills
+/plugin install masjidmu-remotion@masjidmu-skills
+```
+
+Plugin terpasang di level user (`~/.claude` di Mac, `%USERPROFILE%\.claude` di Windows), jadi aktif di semua project.
+Karena repo ini private, komputer tersebut harus sudah login ke GitHub (misalnya lewat `gh auth login` atau credential git).
+Perbarui dengan `/plugin marketplace update masjidmu-skills`.
+
+### claude.ai: smartphone, aplikasi Claude desktop, web, dan sesi Claude Code cloud
+
+Skill di level akun diunggah satu per satu sebagai ZIP:
+Settings → Capabilities → Skills → Upload skill. Setelah diunggah, skill ikut tersinkron ke semua perangkat yang login ke akun yang sama.
+Untuk membuat ZIP satu skill: `cd .claude/skills && zip -r impeccable.zip impeccable`.
+
 ## Sengaja tidak dipasang
 
 - `theme-factory`, `web-artifacts-builder` (anthropics/skills): sudah aktif di level akun.
